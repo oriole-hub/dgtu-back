@@ -5,11 +5,19 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.errors import PASS_ALREADY_USED, PASS_EXPIRED, PASS_INVALID, PASS_REVOKED
+from app.core.errors import PASS_ALREADY_USED, PASS_EXPIRED, PASS_INVALID, PASS_LIMIT_REACHED, PASS_REVOKED
 from app.core.security import make_qr_token
+from app.models import AccessDirection, UserRole
 
 
 async def generate_pass(*, db: AsyncSession, user: dict) -> dict:
+    if user["role"] not in (UserRole.EMPLOYEE.value, UserRole.GUEST.value):
+        raise HTTPException(status_code=403, detail={"code": "forbidden", "msg": "Only employees/guests can create QR"})
+    if user["pass_limit_total"] is not None and user["passes_created_count"] >= user["pass_limit_total"]:
+        raise HTTPException(
+            status_code=PASS_LIMIT_REACHED.status,
+            detail={"code": PASS_LIMIT_REACHED.code, "msg": PASS_LIMIT_REACHED.msg},
+        )
     uid = user["id"]
     now = datetime.now(UTC)
     exp = now + timedelta(minutes=settings.qr_minutes)
@@ -27,6 +35,10 @@ async def generate_pass(*, db: AsyncSession, user: dict) -> dict:
             """
         ),
         {"uid": uid, "token": token, "exp": exp},
+    )
+    await db.execute(
+        text("update users set passes_created_count = passes_created_count + 1 where id = :uid"),
+        {"uid": uid},
     )
     await db.commit()
     row = row_res.mappings().first()
@@ -53,10 +65,18 @@ async def revoke_active_pass(*, db: AsyncSession, user: dict) -> dict:
     return {"ok": True, "msg": "Active pass revoked", "pass": dict(row)}
 
 
-async def scan_pass(*, db: AsyncSession, data: dict) -> dict:
+async def scan_pass(*, db: AsyncSession, data: dict, scanner: dict) -> dict:
     token = data["qr_token"]
     row_res = await db.execute(
-        text("select id, user_id, status, expires_at from qr_passes where qr_token = :token"),
+        text(
+            """
+            select p.id, p.user_id, p.status, p.expires_at,
+                   u.full_name as user_full_name
+            from qr_passes p
+            join users u on u.id = p.user_id
+            where p.qr_token = :token
+            """
+        ),
         {"token": token},
     )
     row = row_res.mappings().first()
@@ -83,5 +103,43 @@ async def scan_pass(*, db: AsyncSession, data: dict) -> dict:
         text("update qr_passes set status = 'used', used_at = now() where id = :pid"),
         {"pid": row["id"]},
     )
+    last_event = await db.execute(
+        text("select direction from access_events where user_id = :uid order by id desc limit 1"),
+        {"uid": row["user_id"]},
+    )
+    prev = last_event.scalar_one_or_none()
+    direction = AccessDirection.OUT.value if prev == AccessDirection.IN.value else AccessDirection.IN.value
+    await db.execute(
+        text(
+            """
+            insert into access_events(user_id, pass_id, direction, scanned_by_user_id)
+            values(:user_id, :pass_id, :direction, :scanner_id)
+            """
+        ),
+        {"user_id": row["user_id"], "pass_id": row["id"], "direction": direction, "scanner_id": scanner["id"]},
+    )
     await db.commit()
-    return {"ok": True, "status": "allowed", "msg": "Access granted"}
+    return {
+        "ok": True,
+        "status": "allowed",
+        "msg": "Access granted",
+        "direction": direction,
+        "user_id": row["user_id"],
+        "user_full_name": row["user_full_name"],
+    }
+
+
+async def list_access_events(*, db: AsyncSession, limit: int = 200) -> list[dict]:
+    res = await db.execute(
+        text(
+            """
+            select e.id, e.user_id, u.full_name as user_full_name, e.direction, e.scanned_by_user_id, e.created_at
+            from access_events e
+            join users u on u.id = e.user_id
+            order by e.id desc
+            limit :limit
+            """
+        ),
+        {"limit": limit},
+    )
+    return [dict(row) for row in res.mappings().all()]

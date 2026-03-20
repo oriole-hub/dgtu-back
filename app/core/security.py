@@ -25,11 +25,12 @@ def verify_pwd(*, pwd: str, pwd_hash: str) -> bool:
     return hmac.compare_digest(digest.hex(), digest_hex)
 
 
-def make_jwt(*, sub: str, login: str) -> str:
+def make_jwt(*, sub: str, login: str, role: str) -> str:
     now = datetime.now(UTC)
     payload = {
         "sub": sub,
         "login": login,
+        "role": role,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=settings.jwt_minutes)).timestamp()),
     }
