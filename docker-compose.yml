@@ -44,39 +44,3 @@ services:
 
 volumes:
   pg_data:
-services:
-  postgres:
-    image: postgres:16
-    environment:
-      POSTGRES_USER: dgtu
-      POSTGRES_PASSWORD: dgtu
-      POSTGRES_DB: dgtu
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dgtu -d dgtu"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-
-  api:
-    build: .
-    environment:
-      DATABASE_URL: postgresql+asyncpg://dgtu:dgtu@postgres:5432/dgtu
-      JWT_SECRET: "tapok:chinazes778"
-      JWT_ALG: "HS256"
-      ACCESS_TOKEN_TTL_SECONDS: "900"
-      SEED_DEMO_USER: "1"
-      DEMO_USER_LOGIN: "tapok"
-      DEMO_USER_PASSWORD: "chinazes778"
-    ports:
-      - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-volumes:
-  postgres_data:
-
