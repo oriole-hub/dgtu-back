@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+pydantic
+asyncpg
+PyJWT
+fastapi
+uvicorn[standard]
+pydantic>=2
+pydantic-settings>=2
+sqlalchemy>=2.0
+asyncpg
+alembic
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt

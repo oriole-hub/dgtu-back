@@ -1,0 +1,60 @@
+# Basic API tests
+
+### Health
+GET http://127.0.0.1:8000/health
+Accept: application/json
+
+###
+
+# Register
+POST http://127.0.0.1:8000/auth/register
+Content-Type: application/json
+
+{
+  "login": "tapok",
+  "pwd": "chinazes778"
+}
+
+###
+
+# Login
+POST http://127.0.0.1:8000/auth/login
+Content-Type: application/json
+
+{
+  "login": "tapok",
+  "pwd": "chinazes778"
+}
+
+###
+
+# Use /me (paste access token below)
+GET http://127.0.0.1:8000/auth/me
+Accept: application/json
+Authorization: Bearer {{access_token}}
+
+###
+
+# Generate QR-pass
+POST http://127.0.0.1:8000/passes/generate
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+###
+
+# Scanner (paste qr_token below)
+POST http://127.0.0.1:8000/scanner/scan
+Content-Type: application/json
+
+{
+  "qr_token": "{{qr_token}}"
+}
+
+###
+
+# Logout/revoke active pass
+POST http://127.0.0.1:8000/auth/logout
+Authorization: Bearer {{access_token}}
+Accept: application/json
+
+###
