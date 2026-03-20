@@ -1,9 +1,11 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class RegisterIn(BaseModel):
+    full_name: str = Field(min_length=3, max_length=255)
+    email: EmailStr
     login: str = Field(min_length=3, max_length=64)
     pwd: str = Field(min_length=6, max_length=128)
 
@@ -20,5 +22,7 @@ class TokenOut(BaseModel):
 
 class UserOut(BaseModel):
     id: int
+    full_name: str
+    email: EmailStr
     login: str
     created_at: datetime

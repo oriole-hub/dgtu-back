@@ -1,7 +1,7 @@
 from typing import Annotated
 
-import asyncpg
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.deps import get_current_user, get_db
 from app.schemas.auth import LoginIn, RegisterIn, TokenOut, UserOut
@@ -14,7 +14,7 @@ auth_router = APIRouter(prefix="/auth", tags=["auth"])
 @auth_router.post("/register", response_model=UserOut)
 async def register_route(
     body: RegisterIn,
-    db: Annotated[asyncpg.Pool, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserOut:
     user = await register_user(db=db, data=body.model_dump())
     return UserOut(**user)
@@ -23,7 +23,7 @@ async def register_route(
 @auth_router.post("/login", response_model=TokenOut)
 async def login_route(
     body: LoginIn,
-    db: Annotated[asyncpg.Pool, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TokenOut:
     token = await login_user(db=db, data=body.model_dump())
     return TokenOut(**token)
@@ -39,7 +39,7 @@ async def me_route(
 @auth_router.post("/logout")
 async def logout_route(
     user: Annotated[dict, Depends(get_current_user)],
-    db: Annotated[asyncpg.Pool, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
     return await revoke_active_pass(db=db, user=user)
 

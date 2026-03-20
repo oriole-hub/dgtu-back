@@ -1,42 +1,21 @@
 from contextlib import asynccontextmanager
 
-import asyncpg
 from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
-
-
-DDL = """
-create table if not exists users (
-  id bigserial primary key,
-  login text not null unique,
-  pwd_hash text not null,
-  created_at timestamptz not null default now()
-);
-
-create table if not exists qr_passes (
-  id bigserial primary key,
-  user_id bigint not null references users(id) on delete cascade,
-  qr_token text not null unique,
-  status text not null check (status in ('active', 'used', 'expired', 'revoked')),
-  expires_at timestamptz not null,
-  used_at timestamptz,
-  revoked_at timestamptz,
-  created_at timestamptz not null default now()
-);
-
-create index if not exists idx_qr_passes_user_status on qr_passes(user_id, status);
-create index if not exists idx_qr_passes_token on qr_passes(qr_token);
-"""
+from app.core.core import Base
+from app.models import pass_model, user_model  # noqa: F401
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    pool = await asyncpg.create_pool(dsn=settings.db_dsn, min_size=2, max_size=10)
-    async with pool.acquire() as conn:
-        await conn.execute(DDL)
-    app.state.db = pool
+    engine = create_async_engine(settings.sqlalchemy_dsn, pool_pre_ping=True)
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    app.state.db = session_factory
     try:
         yield
     finally:
-        await pool.close()
+        await engine.dispose()

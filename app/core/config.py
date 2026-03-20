@@ -19,33 +19,8 @@ class Settings:
     qr_minutes: int = int(os.getenv("QR_MINUTES", "5"))
 
     @property
-    def db_dsn(self) -> str:
-        return f"postgresql://{self.db_user}:{self.db_pass}@{self.db_host}:{self.db_port}/{self.db_name}"
+    def sqlalchemy_dsn(self) -> str:
+        return f"postgresql+asyncpg://{self.db_user}:{self.db_pass}@{self.db_host}:{self.db_port}/{self.db_name}"
 
 
 settings = Settings()
-from functools import lru_cache
-
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-
-    database_url: str = "postgresql+asyncpg://dgtu:dgtu@localhost:5432/dgtu"
-
-    jwt_secret: str = "tapok:chinazes778"
-    jwt_alg: str = "HS256"
-    access_token_ttl_seconds: int = 900
-
-    seed_demo_user: bool = False
-    demo_user_login: str = "tapok"
-    demo_user_password: str = "chinazes778"
-
-    log_level: str = "INFO"
-
-
-@lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    return Settings()
-

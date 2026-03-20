@@ -11,6 +11,8 @@ POST http://127.0.0.1:8000/auth/register
 Content-Type: application/json
 
 {
+  "full_name": "Tapok Ivanov",
+  "email": "tapok@example.com",
   "login": "tapok",
   "pwd": "chinazes778"
 }
