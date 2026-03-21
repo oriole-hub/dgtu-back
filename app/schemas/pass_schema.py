@@ -32,3 +32,9 @@ class AccessEventOut(BaseModel):
     direction: str
     scanned_by_user_id: int
     created_at: datetime
+
+
+class PresentInOfficeOut(BaseModel):
+    user_id: int
+    user_full_name: str
+    last_event_at: datetime

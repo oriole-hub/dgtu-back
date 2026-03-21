@@ -4,7 +4,16 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import OFFICE_REQUIRED, OFFICE_SCOPE_VIOLATION, PASS_ALREADY_USED, PASS_EXPIRED, PASS_INVALID, PASS_LIMIT_REACHED, PASS_REVOKED
+from app.core.errors import (
+    OFFICE_NOT_FOUND,
+    OFFICE_REQUIRED,
+    OFFICE_SCOPE_VIOLATION,
+    PASS_ALREADY_USED,
+    PASS_EXPIRED,
+    PASS_INVALID,
+    PASS_LIMIT_REACHED,
+    PASS_REVOKED,
+)
 from app.core.security import make_qr_token
 from app.models import AccessDirection, UserRole
 
@@ -176,5 +185,33 @@ async def list_access_events_by_user(*, db: AsyncSession, office_id: int, user_i
             """
         ),
         {"office_id": office_id, "user_id": user_id, "limit": limit},
+    )
+    return [dict(row) for row in res.mappings().all()]
+
+
+async def list_users_present_in_office(*, db: AsyncSession, office_id: int) -> list[dict]:
+    exists = await db.execute(text("select 1 from offices where id = :oid"), {"oid": office_id})
+    if not exists.scalar_one_or_none():
+        raise HTTPException(status_code=OFFICE_NOT_FOUND.status, detail={"code": OFFICE_NOT_FOUND.code, "msg": OFFICE_NOT_FOUND.msg})
+    res = await db.execute(
+        text(
+            """
+            with last_ev as (
+                select distinct on (e.user_id)
+                    e.user_id,
+                    e.direction,
+                    e.created_at as last_event_at
+                from access_events e
+                where e.office_id = :office_id
+                order by e.user_id, e.id desc
+            )
+            select le.user_id, u.full_name as user_full_name, le.last_event_at
+            from last_ev le
+            join users u on u.id = le.user_id
+            where le.direction = 'in'
+            order by u.full_name
+            """
+        ),
+        {"office_id": office_id},
     )
     return [dict(row) for row in res.mappings().all()]
