@@ -14,7 +14,11 @@ Content-Type: application/json
   "full_name": "Tapok Ivanov",
   "email": "tapok@example.com",
   "login": "tapok",
-  "pwd": "chinazes778"
+  "pwd": "chinazes778",
+  "office_name": "Main Office",
+  "office_address": "Lenina 1",
+  "office_city": "Rostov",
+  "office_is_active": true
 }
 
 ###

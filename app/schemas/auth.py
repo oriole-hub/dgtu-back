@@ -12,6 +12,13 @@ class RegisterIn(BaseModel):
     pwd: str = Field(min_length=6, max_length=128)
 
 
+class BootstrapOfficeHeadIn(RegisterIn):
+    office_name: str = Field(min_length=2, max_length=255)
+    office_address: str = Field(min_length=3, max_length=255)
+    office_city: str = Field(min_length=2, max_length=128)
+    office_is_active: bool = True
+
+
 class AdminCreateIn(RegisterIn):
     role: UserRole = Field(default=UserRole.ADMIN)
     office_id: int

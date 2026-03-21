@@ -16,7 +16,16 @@ def _normalize_create_data(data: dict) -> dict:
         "login": data["login"].strip().lower(),
         "pwd": data["pwd"],
     }
-    for key in ("office_id", "role", "account_expires_at", "pass_limit_total"):
+    for key in (
+        "office_id",
+        "role",
+        "account_expires_at",
+        "pass_limit_total",
+        "office_name",
+        "office_address",
+        "office_city",
+        "office_is_active",
+    ):
         if key in data:
             normalized[key] = data[key]
     return normalized
@@ -65,15 +74,46 @@ async def bootstrap_office_head(*, db: AsyncSession, data: dict) -> dict:
         )
     await _assert_login_or_email_not_taken(db=db, login=data["login"], email=data["email"])
     pwd_hash = hash_pwd(pwd=data["pwd"])
+    created_head = await db.execute(
+        text(
+            """
+            insert into users(full_name, email, login, pwd_hash, role, office_id, passes_created_count)
+            values(:full_name, :email, :login, :pwd_hash, 'office_head', null, 0)
+            returning id
+            """
+        ),
+        {"full_name": data["full_name"], "email": data["email"], "login": data["login"], "pwd_hash": pwd_hash},
+    )
+    head_id = created_head.scalar_one()
+
+    created_office = await db.execute(
+        text(
+            """
+            insert into offices(name, address, city, is_active, created_by_user_id)
+            values(:name, :address, :city, :is_active, :creator_id)
+            returning id
+            """
+        ),
+        {
+            "name": data["office_name"].strip(),
+            "address": data["office_address"].strip(),
+            "city": data["office_city"].strip(),
+            "is_active": data.get("office_is_active", True),
+            "creator_id": head_id,
+        },
+    )
+    office_id = created_office.scalar_one()
+
     row_res = await db.execute(
         text(
             """
-            insert into users(full_name, email, login, pwd_hash, role, passes_created_count)
-            values(:full_name, :email, :login, :pwd_hash, 'office_head', 0)
+            update users
+            set office_id = :office_id
+            where id = :uid
             """
             + _user_select_sql()
         ),
-        {"full_name": data["full_name"], "email": data["email"], "login": data["login"], "pwd_hash": pwd_hash},
+        {"uid": head_id, "office_id": office_id},
     )
     await db.commit()
     return dict(row_res.mappings().first())

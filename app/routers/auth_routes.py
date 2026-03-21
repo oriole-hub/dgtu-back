@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.deps import get_current_user, get_db, require_roles
 from app.core.errors import FORBIDDEN, NOT_FOUND
 from app.models import UserRole
-from app.schemas.auth import AdminCreateIn, LoginIn, RegisterIn, StaffCreateIn, TokenOut, UserOut, UserUpdateIn
+from app.schemas.auth import AdminCreateIn, BootstrapOfficeHeadIn, LoginIn, StaffCreateIn, TokenOut, UserOut, UserUpdateIn
 from app.services.auth_service import (
     bootstrap_office_head,
     create_admin_by_office_head,
@@ -29,7 +29,7 @@ auth_router = APIRouter(prefix="/auth", tags=["Аутентификация и �
     description="Создает первого и единственного главного пользователя системы.",
 )
 async def bootstrap_office_head_route(
-    body: RegisterIn,
+    body: BootstrapOfficeHeadIn,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserOut:
     user = await bootstrap_office_head(db=db, data=body.model_dump())
@@ -38,7 +38,7 @@ async def bootstrap_office_head_route(
 
 @auth_router.post("/register", response_model=UserOut, include_in_schema=False)
 async def register_legacy_route(
-    body: RegisterIn,
+    body: BootstrapOfficeHeadIn,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserOut:
     """Совместимость со старым фронтом: то же, что bootstrap-office-head."""
@@ -88,7 +88,7 @@ async def create_staff_route(
     admin: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserOut:
-    user = await create_staff_by_admin(db=db, data=body.model_dump(mode="json"), creator=admin)
+    user = await create_staff_by_admin(db=db, data=body.model_dump(), creator=admin)
     return UserOut(**user)
 
 
