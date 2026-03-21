@@ -39,7 +39,7 @@ async def get_current_user(
         text(
             """
             select id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
-                   passes_created_count, created_by_user_id, created_at
+                   passes_created_count, referral_count, created_by_user_id, created_at
             from users where id = :uid
             """
         ),

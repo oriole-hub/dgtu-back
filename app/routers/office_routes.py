@@ -1,12 +1,13 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.deps import get_db, require_roles
+from app.core.errors import FORBIDDEN, NOT_FOUND
 from app.models import UserRole
-from app.schemas.office_schema import OfficeCreateIn, OfficeOut
-from app.services.auth_service import create_office, list_offices
+from app.schemas.office_schema import OfficeCreateIn, OfficeOut, OfficeUpdateIn
+from app.services.auth_service import create_office, list_offices, update_office
 
 office_router = APIRouter(prefix="/offices", tags=["Офисы"])
 
@@ -40,3 +41,23 @@ async def list_offices_route(
     if user["role"] == UserRole.ADMIN.value:
         rows = [row for row in rows if row["id"] == user["office_id"]]
     return [OfficeOut(**row) for row in rows]
+
+
+@office_router.patch(
+    "/{office_id}",
+    response_model=OfficeOut,
+    summary="Изменить настройки офиса (расписание)",
+    description="Главный пользователь может менять время начала рабочего дня и часовой пояс офиса.",
+)
+async def patch_office_route(
+    office_id: int,
+    body: OfficeUpdateIn,
+    office_head: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> OfficeOut:
+    if office_head.get("office_id") != office_id:
+        raise HTTPException(status_code=FORBIDDEN.status, detail={"code": FORBIDDEN.code, "msg": "Office head can update only own office"})
+    updated = await update_office(db=db, office_id=office_id, data=body.model_dump(exclude_unset=True, mode="json"))
+    if not updated:
+        raise HTTPException(status_code=NOT_FOUND.status, detail={"code": NOT_FOUND.code, "msg": NOT_FOUND.msg})
+    return OfficeOut(**updated)

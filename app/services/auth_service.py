@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -40,10 +41,26 @@ async def _assert_login_or_email_not_taken(*, db: AsyncSession, login: str, emai
         raise HTTPException(status_code=USER_EXISTS.status, detail={"code": USER_EXISTS.code, "msg": USER_EXISTS.msg})
 
 
+async def _assert_login_or_email_not_taken_except(
+    *, db: AsyncSession, login: str, email: str, except_user_id: int
+) -> None:
+    has_user = await db.execute(
+        text(
+            """
+            select 1 from users
+            where id != :uid and (login = :login or email = :email)
+            """
+        ),
+        {"uid": except_user_id, "login": login, "email": email},
+    )
+    if has_user.scalar_one_or_none():
+        raise HTTPException(status_code=USER_EXISTS.status, detail={"code": USER_EXISTS.code, "msg": USER_EXISTS.msg})
+
+
 def _user_select_sql() -> str:
     return """
         returning id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
-                  passes_created_count, created_by_user_id, created_at
+                  passes_created_count, referral_count, created_by_user_id, created_at
     """
 
 
@@ -218,11 +235,27 @@ async def list_users(*, db: AsyncSession) -> list[dict]:
         text(
             """
             select id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
-                   passes_created_count, created_by_user_id, created_at
+                   passes_created_count, referral_count, created_by_user_id, created_at
             from users
             order by id
             """
         )
+    )
+    return [dict(row) for row in res.mappings().all()]
+
+
+async def list_users_by_office_id(*, db: AsyncSession, office_id: int) -> list[dict]:
+    res = await db.execute(
+        text(
+            """
+            select id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
+                   passes_created_count, referral_count, created_by_user_id, created_at
+            from users
+            where office_id = :oid
+            order by id
+            """
+        ),
+        {"oid": office_id},
     )
     return [dict(row) for row in res.mappings().all()]
 
@@ -232,7 +265,7 @@ async def get_user_by_id(*, db: AsyncSession, user_id: int) -> dict | None:
         text(
             """
             select id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
-                   passes_created_count, created_by_user_id, created_at
+                   passes_created_count, referral_count, created_by_user_id, created_at
             from users where id = :uid
             """
         ),
@@ -253,6 +286,9 @@ async def update_user(*, db: AsyncSession, user_id: int, data: dict) -> dict | N
     }
     payload = {}
     set_parts = []
+    if "referral_count" in data:
+        payload["referral_count"] = int(data["referral_count"])
+        set_parts.append("referral_count = :referral_count")
     for key, col in fields_map.items():
         if key in data and data[key] is not None:
             value = data[key]
@@ -267,7 +303,7 @@ async def update_user(*, db: AsyncSession, user_id: int, data: dict) -> dict | N
             text(
                 """
                 select id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
-                       passes_created_count, created_by_user_id, created_at
+                       passes_created_count, referral_count, created_by_user_id, created_at
                 from users where id = :uid
                 """
             ),
@@ -283,11 +319,60 @@ async def update_user(*, db: AsyncSession, user_id: int, data: dict) -> dict | N
             set {", ".join(set_parts)}
             where id = :uid
             returning id, full_name, email, login, role, account_expires_at, pass_limit_total,
-                      office_id, passes_created_count, created_by_user_id, created_at
+                      office_id, passes_created_count, referral_count, created_by_user_id, created_at
             """
         ),
         payload,
     )
+    await db.commit()
+    row = res.mappings().first()
+    return dict(row) if row else None
+
+
+async def update_guest_me(*, db: AsyncSession, user_id: int, data: dict) -> dict | None:
+    login = data["login"].strip().lower()
+    email = data["email"].strip().lower()
+    await _assert_login_or_email_not_taken_except(db=db, login=login, email=email, except_user_id=user_id)
+    pwd_hash = None
+    if data.get("pwd"):
+        pwd_hash = hash_pwd(pwd=data["pwd"])
+    if pwd_hash:
+        res = await db.execute(
+            text(
+                """
+                update users
+                set full_name = :full_name, email = :email, login = :login, pwd_hash = :pwd_hash
+                where id = :uid
+                returning id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
+                          passes_created_count, referral_count, created_by_user_id, created_at
+                """
+            ),
+            {
+                "uid": user_id,
+                "full_name": data["full_name"].strip(),
+                "email": email,
+                "login": login,
+                "pwd_hash": pwd_hash,
+            },
+        )
+    else:
+        res = await db.execute(
+            text(
+                """
+                update users
+                set full_name = :full_name, email = :email, login = :login
+                where id = :uid
+                returning id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
+                          passes_created_count, referral_count, created_by_user_id, created_at
+                """
+            ),
+            {
+                "uid": user_id,
+                "full_name": data["full_name"].strip(),
+                "email": email,
+                "login": login,
+            },
+        )
     await db.commit()
     row = res.mappings().first()
     return dict(row) if row else None
@@ -299,13 +384,61 @@ async def delete_user(*, db: AsyncSession, user_id: int) -> bool:
     return res.scalar_one_or_none() is not None
 
 
+async def update_office(*, db: AsyncSession, office_id: int, data: dict) -> dict | None:
+    fields = []
+    payload: dict = {"oid": office_id}
+    if "work_start_time" in data and data["work_start_time"] is not None:
+        fields.append("work_start_time = :work_start_time")
+        payload["work_start_time"] = data["work_start_time"]
+    if "iana_timezone" in data and data["iana_timezone"] is not None:
+        tz_name = str(data["iana_timezone"]).strip()
+        try:
+            ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "invalid_timezone", "msg": f"Unknown IANA timezone: {tz_name}"},
+            )
+        fields.append("iana_timezone = :iana_timezone")
+        payload["iana_timezone"] = tz_name
+    if not fields:
+        res = await db.execute(
+            text(
+                """
+                select id, name, address, city, is_active, work_start_time, iana_timezone,
+                       created_by_user_id, created_at
+                from offices where id = :oid
+                """
+            ),
+            {"oid": office_id},
+        )
+        row = res.mappings().first()
+        return dict(row) if row else None
+    res = await db.execute(
+        text(
+            f"""
+            update offices
+            set {", ".join(fields)}
+            where id = :oid
+            returning id, name, address, city, is_active, work_start_time, iana_timezone,
+                      created_by_user_id, created_at
+            """
+        ),
+        payload,
+    )
+    await db.commit()
+    row = res.mappings().first()
+    return dict(row) if row else None
+
+
 async def create_office(*, db: AsyncSession, data: dict, creator_id: int) -> dict:
     row_res = await db.execute(
         text(
             """
             insert into offices(name, address, city, is_active, created_by_user_id)
             values(:name, :address, :city, :is_active, :creator_id)
-            returning id, name, address, city, is_active, created_by_user_id, created_at
+            returning id, name, address, city, is_active, work_start_time, iana_timezone,
+                      created_by_user_id, created_at
             """
         ),
         {
@@ -322,6 +455,12 @@ async def create_office(*, db: AsyncSession, data: dict, creator_id: int) -> dic
 
 async def list_offices(*, db: AsyncSession) -> list[dict]:
     res = await db.execute(
-        text("select id, name, address, city, is_active, created_by_user_id, created_at from offices order by id")
+        text(
+            """
+            select id, name, address, city, is_active, work_start_time, iana_timezone,
+                   created_by_user_id, created_at
+            from offices order by id
+            """
+        )
     )
     return [dict(row) for row in res.mappings().all()]

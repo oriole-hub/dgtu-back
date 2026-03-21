@@ -38,6 +38,14 @@ class UserUpdateIn(BaseModel):
     office_id: int | None = None
     account_expires_at: datetime | None = None
     pass_limit_total: int | None = Field(default=None, ge=1)
+    referral_count: int | None = Field(default=None, ge=0)
+
+
+class GuestSelfUpdateIn(BaseModel):
+    full_name: str = Field(min_length=3, max_length=255)
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=255)
+    login: str = Field(min_length=3, max_length=64)
+    pwd: str | None = Field(default=None, min_length=6, max_length=128)
 
 
 class LoginIn(BaseModel):
@@ -60,5 +68,6 @@ class UserOut(BaseModel):
     account_expires_at: datetime | None = None
     pass_limit_total: int | None = None
     passes_created_count: int
+    referral_count: int
     created_by_user_id: int | None = None
     created_at: datetime

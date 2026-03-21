@@ -167,6 +167,18 @@ async def _ensure_rbac_columns(conn) -> None:
             """
         )
     )
+    await conn.execute(text("alter table offices add column if not exists work_start_time time"))
+    await conn.execute(text("update offices set work_start_time = time '09:00:00' where work_start_time is null"))
+    await conn.execute(text("alter table offices alter column work_start_time set default time '09:00:00'"))
+    await conn.execute(text("alter table offices alter column work_start_time set not null"))
+    await conn.execute(text("alter table offices add column if not exists iana_timezone varchar(64)"))
+    await conn.execute(text("update offices set iana_timezone = 'Europe/Moscow' where iana_timezone is null"))
+    await conn.execute(text("alter table offices alter column iana_timezone set default 'Europe/Moscow'"))
+    await conn.execute(text("alter table offices alter column iana_timezone set not null"))
+    await conn.execute(text("alter table users add column if not exists referral_count integer"))
+    await conn.execute(text("update users set referral_count = 0 where referral_count is null"))
+    await conn.execute(text("alter table users alter column referral_count set default 0"))
+    await conn.execute(text("alter table users alter column referral_count set not null"))
 
 
 @asynccontextmanager

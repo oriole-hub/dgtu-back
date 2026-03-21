@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time
 
 from pydantic import BaseModel, Field
 
@@ -16,5 +16,12 @@ class OfficeOut(BaseModel):
     address: str
     city: str
     is_active: bool
+    work_start_time: time
+    iana_timezone: str
     created_by_user_id: int
     created_at: datetime
+
+
+class OfficeUpdateIn(BaseModel):
+    work_start_time: time | None = None
+    iana_timezone: str | None = Field(default=None, min_length=1, max_length=64)
