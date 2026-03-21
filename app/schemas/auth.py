@@ -24,9 +24,16 @@ class AdminCreateIn(RegisterIn):
     office_id: int
 
 
-class StaffCreateIn(RegisterIn):
-    role: UserRole
+class EmployeeCreateIn(RegisterIn):
     office_id: int
+    job_title: str = Field(min_length=1, max_length=255)
+    account_expires_at: datetime | None = None
+    pass_limit_total: int | None = Field(default=None, ge=1)
+
+
+class GuestCreateIn(RegisterIn):
+    office_id: int
+    creation_purpose: str = Field(min_length=3, max_length=512, description="Цель создания гостевого аккаунта")
     account_expires_at: datetime | None = None
     pass_limit_total: int | None = Field(default=None, ge=1)
 
@@ -39,6 +46,8 @@ class UserUpdateIn(BaseModel):
     account_expires_at: datetime | None = None
     pass_limit_total: int | None = Field(default=None, ge=1)
     referral_count: int | None = Field(default=None, ge=0)
+    job_title: str | None = Field(default=None, max_length=255)
+    account_creation_purpose: str | None = Field(default=None, max_length=512)
 
 
 class GuestSelfUpdateIn(BaseModel):
@@ -71,3 +80,5 @@ class UserOut(BaseModel):
     referral_count: int
     created_by_user_id: int | None = None
     created_at: datetime
+    job_title: str | None = None
+    account_creation_purpose: str | None = None

@@ -179,6 +179,8 @@ async def _ensure_rbac_columns(conn) -> None:
     await conn.execute(text("update users set referral_count = 0 where referral_count is null"))
     await conn.execute(text("alter table users alter column referral_count set default 0"))
     await conn.execute(text("alter table users alter column referral_count set not null"))
+    await conn.execute(text("alter table users add column if not exists job_title varchar(255)"))
+    await conn.execute(text("alter table users add column if not exists account_creation_purpose varchar(512)"))
 
 
 @asynccontextmanager

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.errors import ACCOUNT_EXPIRED, FORBIDDEN, INVALID_TOKEN, UNAUTHORIZED
 from app.core.security import read_jwt
 from app.models import UserRole
+from app.models.user_model import normalize_db_role
 
 
 bearer = HTTPBearer(auto_error=False)
@@ -39,7 +40,8 @@ async def get_current_user(
         text(
             """
             select id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
-                   passes_created_count, referral_count, created_by_user_id, created_at
+                   passes_created_count, referral_count, created_by_user_id, created_at,
+                   job_title, account_creation_purpose
             from users where id = :uid
             """
         ),
@@ -49,6 +51,7 @@ async def get_current_user(
     if row is None:
         raise HTTPException(status_code=UNAUTHORIZED.status, detail={"code": UNAUTHORIZED.code, "msg": UNAUTHORIZED.msg})
     user = dict(row)
+    user["role"] = normalize_db_role(user.get("role"))
     if user["account_expires_at"] and user["account_expires_at"] < datetime.now(UTC):
         raise HTTPException(
             status_code=ACCOUNT_EXPIRED.status,

@@ -14,6 +14,26 @@ class UserRole(str, PyEnum):
     GUEST = "guest"
 
 
+_LEGACY_ROLE_LABELS = {
+    "OFFICE_HEAD": UserRole.OFFICE_HEAD.value,
+    "ADMIN": UserRole.ADMIN.value,
+    "EMPLOYEE": UserRole.EMPLOYEE.value,
+    "GUEST": UserRole.GUEST.value,
+}
+
+
+def normalize_db_role(raw) -> str:
+    """Приводит значение role из БД/драйвера к строке, совпадающей с UserRole.value."""
+    if raw is None:
+        return ""
+    v = getattr(raw, "value", raw)
+    s = str(v).strip()
+    low = s.lower()
+    if low in {r.value for r in UserRole}:
+        return low
+    return _LEGACY_ROLE_LABELS.get(s.upper(), low)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -34,4 +54,6 @@ class User(Base):
     referral_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     office_id: Mapped[int | None] = mapped_column(ForeignKey("offices.id", ondelete="SET NULL"), nullable=True, index=True)
+    job_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    account_creation_purpose: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

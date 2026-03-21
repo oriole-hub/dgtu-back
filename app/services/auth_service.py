@@ -8,6 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import ACCOUNT_EXPIRED, INVALID_CREDENTIALS, OFFICE_INACTIVE, OFFICE_NOT_FOUND, OFFICE_HEAD_EXISTS, USER_EXISTS
 from app.core.security import hash_pwd, make_jwt, verify_pwd
 from app.models import UserRole
+from app.models.user_model import normalize_db_role
+
+
+def _user_dict(row) -> dict:
+    d = dict(row)
+    d["role"] = normalize_db_role(d.get("role"))
+    return d
 
 
 def _normalize_create_data(data: dict) -> dict:
@@ -60,7 +67,8 @@ async def _assert_login_or_email_not_taken_except(
 def _user_select_sql() -> str:
     return """
         returning id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
-                  passes_created_count, referral_count, created_by_user_id, created_at
+                  passes_created_count, referral_count, created_by_user_id, created_at,
+                  job_title, account_creation_purpose
     """
 
 
@@ -133,7 +141,7 @@ async def bootstrap_office_head(*, db: AsyncSession, data: dict) -> dict:
         {"uid": head_id, "office_id": office_id},
     )
     await db.commit()
-    return dict(row_res.mappings().first())
+    return _user_dict(row_res.mappings().first())
 
 
 async def create_admin_by_office_head(*, db: AsyncSession, data: dict, creator: dict) -> dict:
@@ -160,18 +168,22 @@ async def create_admin_by_office_head(*, db: AsyncSession, data: dict, creator: 
         },
     )
     await db.commit()
-    return dict(row_res.mappings().first())
+    return _user_dict(row_res.mappings().first())
 
 
-async def create_staff_by_admin(*, db: AsyncSession, data: dict, creator: dict) -> dict:
-    data_core = _normalize_create_data(data)
-    role = data["role"]
-    if role not in (UserRole.EMPLOYEE.value, UserRole.GUEST.value):
-        raise HTTPException(status_code=403, detail={"code": "invalid_role", "msg": "Admin can only create employee/guest"})
+async def _create_office_user_by_admin(
+    *,
+    db: AsyncSession,
+    data_core: dict,
+    creator: dict,
+    role: str,
+    job_title: str | None,
+    account_creation_purpose: str | None,
+) -> dict:
     office_id = creator["office_id"]
     if office_id is None:
         raise HTTPException(status_code=400, detail={"code": "office_required", "msg": "Admin must be assigned to office"})
-    if data.get("office_id") != office_id:
+    if data_core.get("office_id") != office_id:
         raise HTTPException(status_code=403, detail={"code": "office_scope_violation", "msg": "Admin can create users only in own office"})
     await _assert_office_active(db=db, office_id=office_id)
     await _assert_login_or_email_not_taken(db=db, login=data_core["login"], email=data_core["email"])
@@ -181,11 +193,13 @@ async def create_staff_by_admin(*, db: AsyncSession, data: dict, creator: dict) 
             """
             insert into users(
                 full_name, email, login, pwd_hash, role, account_expires_at,
-                pass_limit_total, office_id, passes_created_count, created_by_user_id
+                pass_limit_total, office_id, passes_created_count, created_by_user_id,
+                job_title, account_creation_purpose
             )
             values(
                 :full_name, :email, :login, :pwd_hash, :role, :account_expires_at,
-                :pass_limit_total, :office_id, 0, :creator_id
+                :pass_limit_total, :office_id, 0, :creator_id,
+                :job_title, :account_creation_purpose
             )
             """
             + _user_select_sql()
@@ -196,14 +210,49 @@ async def create_staff_by_admin(*, db: AsyncSession, data: dict, creator: dict) 
             "login": data_core["login"],
             "pwd_hash": pwd_hash,
             "role": role,
-            "account_expires_at": data.get("account_expires_at"),
-            "pass_limit_total": data.get("pass_limit_total"),
+            "account_expires_at": data_core.get("account_expires_at"),
+            "pass_limit_total": data_core.get("pass_limit_total"),
             "office_id": office_id,
             "creator_id": creator["id"],
+            "job_title": job_title,
+            "account_creation_purpose": account_creation_purpose,
         },
     )
     await db.commit()
-    return dict(row_res.mappings().first())
+    return _user_dict(row_res.mappings().first())
+
+
+async def create_employee_by_admin(*, db: AsyncSession, data: dict, creator: dict) -> dict:
+    data_core = _normalize_create_data(data)
+    jt = (data.get("job_title") or "").strip()
+    if not jt:
+        raise HTTPException(status_code=400, detail={"code": "job_title_required", "msg": "job_title is required for employees"})
+    return await _create_office_user_by_admin(
+        db=db,
+        data_core=data_core,
+        creator=creator,
+        role=UserRole.EMPLOYEE.value,
+        job_title=jt,
+        account_creation_purpose=None,
+    )
+
+
+async def create_guest_by_admin(*, db: AsyncSession, data: dict, creator: dict) -> dict:
+    data_core = _normalize_create_data(data)
+    purpose = (data.get("creation_purpose") or "").strip()
+    if not purpose:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "creation_purpose_required", "msg": "creation_purpose is required for guest accounts"},
+        )
+    return await _create_office_user_by_admin(
+        db=db,
+        data_core=data_core,
+        creator=creator,
+        role=UserRole.GUEST.value,
+        job_title=None,
+        account_creation_purpose=purpose,
+    )
 
 
 async def login_user(*, db: AsyncSession, data: dict) -> dict:
@@ -226,7 +275,7 @@ async def login_user(*, db: AsyncSession, data: dict) -> dict:
         )
     if row["account_expires_at"] and row["account_expires_at"] < datetime.now(UTC):
         raise HTTPException(status_code=ACCOUNT_EXPIRED.status, detail={"code": ACCOUNT_EXPIRED.code, "msg": ACCOUNT_EXPIRED.msg})
-    token = make_jwt(sub=str(row["id"]), login=row["login"], role=row["role"])
+    token = make_jwt(sub=str(row["id"]), login=row["login"], role=normalize_db_role(row["role"]))
     return {"access_token": token, "token_type": "bearer"}
 
 
@@ -235,13 +284,14 @@ async def list_users(*, db: AsyncSession) -> list[dict]:
         text(
             """
             select id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
-                   passes_created_count, referral_count, created_by_user_id, created_at
+                   passes_created_count, referral_count, created_by_user_id, created_at,
+                   job_title, account_creation_purpose
             from users
             order by id
             """
         )
     )
-    return [dict(row) for row in res.mappings().all()]
+    return [_user_dict(row) for row in res.mappings().all()]
 
 
 async def list_users_by_office_id(*, db: AsyncSession, office_id: int) -> list[dict]:
@@ -249,7 +299,8 @@ async def list_users_by_office_id(*, db: AsyncSession, office_id: int) -> list[d
         text(
             """
             select id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
-                   passes_created_count, referral_count, created_by_user_id, created_at
+                   passes_created_count, referral_count, created_by_user_id, created_at,
+                   job_title, account_creation_purpose
             from users
             where office_id = :oid
             order by id
@@ -257,7 +308,7 @@ async def list_users_by_office_id(*, db: AsyncSession, office_id: int) -> list[d
         ),
         {"oid": office_id},
     )
-    return [dict(row) for row in res.mappings().all()]
+    return [_user_dict(row) for row in res.mappings().all()]
 
 
 async def get_user_by_id(*, db: AsyncSession, user_id: int) -> dict | None:
@@ -265,14 +316,15 @@ async def get_user_by_id(*, db: AsyncSession, user_id: int) -> dict | None:
         text(
             """
             select id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
-                   passes_created_count, referral_count, created_by_user_id, created_at
+                   passes_created_count, referral_count, created_by_user_id, created_at,
+                   job_title, account_creation_purpose
             from users where id = :uid
             """
         ),
         {"uid": user_id},
     )
     row = res.mappings().first()
-    return dict(row) if row else None
+    return _user_dict(row) if row else None
 
 
 async def update_user(*, db: AsyncSession, user_id: int, data: dict) -> dict | None:
@@ -283,6 +335,8 @@ async def update_user(*, db: AsyncSession, user_id: int, data: dict) -> dict | N
         "office_id": "office_id",
         "account_expires_at": "account_expires_at",
         "pass_limit_total": "pass_limit_total",
+        "job_title": "job_title",
+        "account_creation_purpose": "account_creation_purpose",
     }
     payload = {}
     set_parts = []
@@ -292,10 +346,16 @@ async def update_user(*, db: AsyncSession, user_id: int, data: dict) -> dict | N
     for key, col in fields_map.items():
         if key in data and data[key] is not None:
             value = data[key]
+            if key == "role":
+                value = getattr(value, "value", value)
             if key == "email":
                 value = value.strip().lower()
             if key == "office_id":
                 await _assert_office_exists(db=db, office_id=value)
+            if key == "job_title" and isinstance(value, str):
+                value = value.strip() or None
+            if key == "account_creation_purpose" and isinstance(value, str):
+                value = value.strip() or None
             payload[key] = value
             set_parts.append(f"{col} = :{key}")
     if not set_parts:
@@ -303,14 +363,15 @@ async def update_user(*, db: AsyncSession, user_id: int, data: dict) -> dict | N
             text(
                 """
                 select id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
-                       passes_created_count, referral_count, created_by_user_id, created_at
+                       passes_created_count, referral_count, created_by_user_id, created_at,
+                       job_title, account_creation_purpose
                 from users where id = :uid
                 """
             ),
             {"uid": user_id},
         )
         row = res.mappings().first()
-        return dict(row) if row else None
+        return _user_dict(row) if row else None
     payload["uid"] = user_id
     res = await db.execute(
         text(
@@ -318,15 +379,16 @@ async def update_user(*, db: AsyncSession, user_id: int, data: dict) -> dict | N
             update users
             set {", ".join(set_parts)}
             where id = :uid
-            returning id, full_name, email, login, role, account_expires_at, pass_limit_total,
-                      office_id, passes_created_count, referral_count, created_by_user_id, created_at
+            returning id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
+                      passes_created_count, referral_count, created_by_user_id, created_at,
+                      job_title, account_creation_purpose
             """
         ),
         payload,
     )
     await db.commit()
     row = res.mappings().first()
-    return dict(row) if row else None
+    return _user_dict(row) if row else None
 
 
 async def update_guest_me(*, db: AsyncSession, user_id: int, data: dict) -> dict | None:
@@ -344,7 +406,8 @@ async def update_guest_me(*, db: AsyncSession, user_id: int, data: dict) -> dict
                 set full_name = :full_name, email = :email, login = :login, pwd_hash = :pwd_hash
                 where id = :uid
                 returning id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
-                          passes_created_count, referral_count, created_by_user_id, created_at
+                          passes_created_count, referral_count, created_by_user_id, created_at,
+                          job_title, account_creation_purpose
                 """
             ),
             {
@@ -363,7 +426,8 @@ async def update_guest_me(*, db: AsyncSession, user_id: int, data: dict) -> dict
                 set full_name = :full_name, email = :email, login = :login
                 where id = :uid
                 returning id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
-                          passes_created_count, referral_count, created_by_user_id, created_at
+                          passes_created_count, referral_count, created_by_user_id, created_at,
+                          job_title, account_creation_purpose
                 """
             ),
             {
@@ -375,7 +439,7 @@ async def update_guest_me(*, db: AsyncSession, user_id: int, data: dict) -> dict
         )
     await db.commit()
     row = res.mappings().first()
-    return dict(row) if row else None
+    return _user_dict(row) if row else None
 
 
 async def delete_user(*, db: AsyncSession, user_id: int) -> bool:
