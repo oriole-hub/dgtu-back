@@ -9,7 +9,52 @@ from app.core.core import Base
 from app.models import access_event_model, pass_model, user_model  # noqa: F401
 
 
+async def _ensure_enum_value(conn, enum_type: str, enum_value: str) -> None:
+    await conn.execute(
+        text(
+            f"""
+            do $$
+            begin
+                if not exists (
+                    select 1
+                    from pg_enum e
+                    join pg_type t on t.oid = e.enumtypid
+                    where t.typname = '{enum_type}' and e.enumlabel = '{enum_value}'
+                ) then
+                    execute 'alter type {enum_type} add value ''{enum_value}''';
+                end if;
+            end
+            $$;
+            """
+        )
+    )
+
+
+async def _ensure_legacy_enum_compatibility(conn) -> None:
+    # user_role: support both legacy uppercase labels and lowercase labels used by app.
+    for value in ("office_head", "admin", "employee", "guest"):
+        await _ensure_enum_value(conn, "user_role", value)
+    # pass_status: same approach to avoid runtime 500 on old schemas.
+    for value in ("active", "used", "expired", "revoked"):
+        await _ensure_enum_value(conn, "pass_status", value)
+    for value in ("in", "out"):
+        await _ensure_enum_value(conn, "access_direction", value)
+
+    # Normalize stored values to lowercase where legacy uppercase labels exist.
+    await conn.execute(text("update users set role = 'office_head' where role::text = 'OFFICE_HEAD'"))
+    await conn.execute(text("update users set role = 'admin' where role::text = 'ADMIN'"))
+    await conn.execute(text("update users set role = 'employee' where role::text = 'EMPLOYEE'"))
+    await conn.execute(text("update users set role = 'guest' where role::text = 'GUEST'"))
+    await conn.execute(text("update qr_passes set status = 'active' where status::text = 'ACTIVE'"))
+    await conn.execute(text("update qr_passes set status = 'used' where status::text = 'USED'"))
+    await conn.execute(text("update qr_passes set status = 'expired' where status::text = 'EXPIRED'"))
+    await conn.execute(text("update qr_passes set status = 'revoked' where status::text = 'REVOKED'"))
+    await conn.execute(text("update access_events set direction = 'in' where direction::text = 'IN'"))
+    await conn.execute(text("update access_events set direction = 'out' where direction::text = 'OUT'"))
+
+
 async def _ensure_rbac_columns(conn) -> None:
+    await _ensure_legacy_enum_compatibility(conn)
     await conn.execute(text("alter table users add column if not exists role user_role"))
     await conn.execute(text("update users set role = 'employee' where role is null"))
     await conn.execute(text("alter table users alter column role set default 'employee'"))
