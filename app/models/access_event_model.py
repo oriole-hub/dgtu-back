@@ -17,6 +17,7 @@ class AccessEvent(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    office_id: Mapped[int] = mapped_column(ForeignKey("offices.id", ondelete="CASCADE"), index=True, nullable=False)
     pass_id: Mapped[int] = mapped_column(ForeignKey("qr_passes.id", ondelete="SET NULL"), index=True, nullable=True)
     direction: Mapped[AccessDirection] = mapped_column(
         Enum(AccessDirection, name="access_direction", values_callable=lambda enum: [item.value for item in enum]),

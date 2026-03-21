@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.core import Base
@@ -19,6 +19,7 @@ class QrPass(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    office_id: Mapped[int] = mapped_column(ForeignKey("offices.id", ondelete="CASCADE"), index=True, nullable=False)
     qr_token: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
     status: Mapped[PassStatus] = mapped_column(
         Enum(PassStatus, name="pass_status", values_callable=lambda enum: [item.value for item in enum]),

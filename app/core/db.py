@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import settings
 from app.core.core import Base
-from app.models import access_event_model, pass_model, user_model  # noqa: F401
+from app.models import access_event_model, office_model, pass_model, user_model  # noqa: F401
 
 
 async def _ensure_enum_value(conn, enum_type: str, enum_value: str) -> None:
@@ -69,6 +69,77 @@ async def _ensure_rbac_columns(conn) -> None:
     await conn.execute(text("alter table users alter column passes_created_count set default 0"))
     await conn.execute(text("alter table users alter column passes_created_count set not null"))
     await conn.execute(text("alter table users add column if not exists created_by_user_id integer"))
+    await conn.execute(text("alter table users add column if not exists office_id integer"))
+    await conn.execute(text("alter table qr_passes add column if not exists office_id integer"))
+    await conn.execute(text("alter table access_events add column if not exists office_id integer"))
+    await conn.execute(
+        text(
+            """
+            update qr_passes p
+            set office_id = u.office_id
+            from users u
+            where p.user_id = u.id and p.office_id is null
+            """
+        )
+    )
+    await conn.execute(
+        text(
+            """
+            update access_events e
+            set office_id = u.office_id
+            from users u
+            where e.user_id = u.id and e.office_id is null
+            """
+        )
+    )
+    await conn.execute(
+        text(
+            """
+            do $$
+            begin
+                alter table users
+                add constraint users_office_id_fkey
+                foreign key (office_id) references offices(id) on delete set null;
+            exception
+                when duplicate_object then null;
+            end
+            $$;
+            """
+        )
+    )
+    await conn.execute(
+        text(
+            """
+            do $$
+            begin
+                alter table qr_passes
+                add constraint qr_passes_office_id_fkey
+                foreign key (office_id) references offices(id) on delete cascade;
+            exception
+                when duplicate_object then null;
+            end
+            $$;
+            """
+        )
+    )
+    await conn.execute(
+        text(
+            """
+            do $$
+            begin
+                alter table access_events
+                add constraint access_events_office_id_fkey
+                foreign key (office_id) references offices(id) on delete cascade;
+            exception
+                when duplicate_object then null;
+            end
+            $$;
+            """
+        )
+    )
+    await conn.execute(text("create index if not exists ix_users_office_id on users(office_id)"))
+    await conn.execute(text("create index if not exists ix_qr_passes_office_id on qr_passes(office_id)"))
+    await conn.execute(text("create index if not exists ix_access_events_office_id on access_events(office_id)"))
     await conn.execute(
         text(
             """

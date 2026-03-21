@@ -7,10 +7,15 @@ from app.application.deps import get_current_user, get_db
 from app.schemas.pass_schema import PassOut
 from app.services.pass_service import generate_pass, revoke_active_pass
 
-pass_router = APIRouter(prefix="/passes", tags=["passes"])
+pass_router = APIRouter(prefix="/passes", tags=["Пропуска"])
 
 
-@pass_router.post("/generate", response_model=PassOut)
+@pass_router.post(
+    "/generate",
+    response_model=PassOut,
+    summary="Сгенерировать QR-пропуск",
+    description="Создает QR-пропуск, действующий ровно 5 минут.",
+)
 async def generate_pass_route(
     user: Annotated[dict, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -19,7 +24,11 @@ async def generate_pass_route(
     return PassOut(**row)
 
 
-@pass_router.post("/revoke")
+@pass_router.post(
+    "/revoke",
+    summary="Отозвать активный пропуск",
+    description="Отключает текущий активный пропуск пользователя.",
+)
 async def revoke_pass_route(
     user: Annotated[dict, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],

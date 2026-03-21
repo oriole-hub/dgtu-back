@@ -14,10 +14,12 @@ class RegisterIn(BaseModel):
 
 class AdminCreateIn(RegisterIn):
     role: UserRole = Field(default=UserRole.ADMIN)
+    office_id: int
 
 
 class StaffCreateIn(RegisterIn):
     role: UserRole
+    office_id: int
     account_expires_at: datetime | None = None
     pass_limit_total: int | None = Field(default=None, ge=1)
 
@@ -26,6 +28,7 @@ class UserUpdateIn(BaseModel):
     full_name: str | None = Field(default=None, min_length=3, max_length=255)
     email: str | None = Field(default=None, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=255)
     role: UserRole | None = None
+    office_id: int | None = None
     account_expires_at: datetime | None = None
     pass_limit_total: int | None = Field(default=None, ge=1)
 
@@ -46,6 +49,7 @@ class UserOut(BaseModel):
     email: str
     login: str
     role: UserRole
+    office_id: int | None = None
     account_expires_at: datetime | None = None
     pass_limit_total: int | None = None
     passes_created_count: int

@@ -7,6 +7,7 @@ class PassOut(BaseModel):
     qr_token: str
     status: str
     expires_at: datetime
+    office_id: int
 
 
 class ScanIn(BaseModel):
@@ -20,12 +21,14 @@ class ScanOut(BaseModel):
     direction: str
     user_id: int
     user_full_name: str
+    office_id: int
 
 
 class AccessEventOut(BaseModel):
     id: int
     user_id: int
     user_full_name: str
+    office_id: int
     direction: str
     scanned_by_user_id: int
     created_at: datetime

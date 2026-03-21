@@ -19,10 +19,15 @@ from app.services.auth_service import (
 )
 from app.services.pass_service import revoke_active_pass
 
-auth_router = APIRouter(prefix="/auth", tags=["auth"])
+auth_router = APIRouter(prefix="/auth", tags=["Аутентификация и пользователи"])
 
 
-@auth_router.post("/bootstrap-office-head", response_model=UserOut)
+@auth_router.post(
+    "/bootstrap-office-head",
+    response_model=UserOut,
+    summary="Создать главного пользователя",
+    description="Создает первого и единственного главного пользователя системы.",
+)
 async def bootstrap_office_head_route(
     body: RegisterIn,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -41,7 +46,7 @@ async def register_legacy_route(
     return UserOut(**user)
 
 
-@auth_router.post("/login", response_model=TokenOut)
+@auth_router.post("/login", response_model=TokenOut, summary="Вход", description="Аутентификация пользователя.")
 async def login_route(
     body: LoginIn,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -50,14 +55,19 @@ async def login_route(
     return TokenOut(**token)
 
 
-@auth_router.get("/me", response_model=UserOut)
+@auth_router.get("/me", response_model=UserOut, summary="Текущий пользователь")
 async def me_route(
     user: Annotated[dict, Depends(get_current_user)],
 ) -> UserOut:
     return UserOut(**user)
 
 
-@auth_router.post("/admins", response_model=UserOut)
+@auth_router.post(
+    "/admins",
+    response_model=UserOut,
+    summary="Создать администратора",
+    description="Главный пользователь создает администратора и привязывает его к офису.",
+)
 async def create_admin_route(
     body: AdminCreateIn,
     office_head: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD))],
@@ -67,7 +77,12 @@ async def create_admin_route(
     return UserOut(**user)
 
 
-@auth_router.post("/staff", response_model=UserOut)
+@auth_router.post(
+    "/staff",
+    response_model=UserOut,
+    summary="Создать сотрудника или гостя",
+    description="Администратор может создавать только сотрудников/гостей в своем офисе.",
+)
 async def create_staff_route(
     body: StaffCreateIn,
     admin: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
@@ -77,7 +92,7 @@ async def create_staff_route(
     return UserOut(**user)
 
 
-@auth_router.get("/users", response_model=list[UserOut])
+@auth_router.get("/users", response_model=list[UserOut], summary="Список пользователей")
 async def list_users_route(
     _: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD))],
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -86,7 +101,7 @@ async def list_users_route(
     return [UserOut(**row) for row in rows]
 
 
-@auth_router.patch("/users/{user_id}", response_model=UserOut)
+@auth_router.patch("/users/{user_id}", response_model=UserOut, summary="Изменить пользователя (главный)")
 async def office_head_update_user_route(
     user_id: int,
     body: UserUpdateIn,
@@ -99,7 +114,7 @@ async def office_head_update_user_route(
     return UserOut(**updated)
 
 
-@auth_router.delete("/users/{user_id}")
+@auth_router.delete("/users/{user_id}", summary="Удалить пользователя (главный)")
 async def office_head_delete_user_route(
     user_id: int,
     current_user: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD))],
@@ -113,11 +128,16 @@ async def office_head_delete_user_route(
     return {"ok": True}
 
 
-@auth_router.patch("/workers/{user_id}", response_model=UserOut)
+@auth_router.patch(
+    "/workers/{user_id}",
+    response_model=UserOut,
+    summary="Изменить сотрудника (админ)",
+    description="Администратор может изменять только сотрудников своего офиса.",
+)
 async def admin_update_worker_route(
     user_id: int,
     body: UserUpdateIn,
-    _: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
+    admin: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserOut:
     target = await get_user_by_id(db=db, user_id=user_id)
@@ -125,14 +145,18 @@ async def admin_update_worker_route(
         raise HTTPException(status_code=NOT_FOUND.status, detail={"code": NOT_FOUND.code, "msg": NOT_FOUND.msg})
     if target["role"] != UserRole.EMPLOYEE.value:
         raise HTTPException(status_code=FORBIDDEN.status, detail={"code": FORBIDDEN.code, "msg": "Admin can update only employees"})
+    if target["office_id"] != admin["office_id"]:
+        raise HTTPException(status_code=FORBIDDEN.status, detail={"code": FORBIDDEN.code, "msg": "Admin can update only employees in own office"})
     incoming = body.model_dump(exclude_unset=True, mode="json")
+    if "office_id" in incoming:
+        incoming.pop("office_id")
     if "role" in incoming and incoming["role"] != UserRole.EMPLOYEE.value:
         raise HTTPException(status_code=FORBIDDEN.status, detail={"code": FORBIDDEN.code, "msg": "Admin cannot change role"})
     updated = await update_user(db=db, user_id=user_id, data=incoming)
     return UserOut(**updated)
 
 
-@auth_router.post("/logout")
+@auth_router.post("/logout", summary="Выход")
 async def logout_route(
     user: Annotated[dict, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],

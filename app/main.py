@@ -7,13 +7,25 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.db import lifespan
 from app.routers.auth_routes import auth_router
+from app.routers.office_routes import office_router
 from app.routers.pass_routes import pass_router
 from app.routers.scanner_routes import scanner_router
 from app.utils.http_middleware import error_middleware
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
+app = FastAPI(
+    title="dgtu back",
+    version="1.0.0",
+    debug=settings.debug,
+    lifespan=lifespan,
+    openapi_tags=[
+        {"name": "Аутентификация и пользователи", "description": "Вход, профиль и управление учетными записями."},
+        {"name": "Офисы", "description": "Создание и просмотр офисов."},
+        {"name": "Пропуска", "description": "Генерация и отзыв QR-пропусков."},
+        {"name": "Сканер", "description": "Сканирование QR и просмотр журнала входов/выходов."},
+    ],
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,5 +43,6 @@ async def health() -> JSONResponse:
 
 app.middleware("http")(error_middleware)
 app.include_router(auth_router)
+app.include_router(office_router)
 app.include_router(pass_router)
 app.include_router(scanner_router)
