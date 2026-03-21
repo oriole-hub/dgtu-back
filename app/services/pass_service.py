@@ -15,12 +15,10 @@ from app.core.errors import (
     PASS_REVOKED,
 )
 from app.core.security import make_qr_token
-from app.models import AccessDirection, UserRole
+from app.models import AccessDirection
 
 
 async def generate_pass(*, db: AsyncSession, user: dict) -> dict:
-    if user["role"] not in (UserRole.EMPLOYEE.value, UserRole.GUEST.value):
-        raise HTTPException(status_code=403, detail={"code": "forbidden", "msg": "Only employees/guests can create QR"})
     if user["pass_limit_total"] is not None and user["passes_created_count"] >= user["pass_limit_total"]:
         raise HTTPException(
             status_code=PASS_LIMIT_REACHED.status,

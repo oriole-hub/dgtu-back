@@ -14,7 +14,7 @@ pass_router = APIRouter(prefix="/passes", tags=["Пропуска"])
     "/generate",
     response_model=PassOut,
     summary="Сгенерировать QR-пропуск",
-    description="Создает QR-пропуск, действующий ровно 5 минут.",
+    description="Создает QR-пропуск, действующий ровно 5 минут. Доступно любой авторизованной роли при привязке к офису.",
 )
 async def generate_pass_route(
     user: Annotated[dict, Depends(get_current_user)],
