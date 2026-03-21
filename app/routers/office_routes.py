@@ -22,7 +22,7 @@ async def create_office_route(
     office_head: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> OfficeOut:
-    row = await create_office(db=db, name=body.name, creator_id=office_head["id"])
+    row = await create_office(db=db, data=body.model_dump(), creator_id=office_head["id"])
     return OfficeOut(**row)
 
 

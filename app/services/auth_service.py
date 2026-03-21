@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ACCOUNT_EXPIRED, INVALID_CREDENTIALS, OFFICE_NOT_FOUND, OFFICE_HEAD_EXISTS, USER_EXISTS
+from app.core.errors import ACCOUNT_EXPIRED, INVALID_CREDENTIALS, OFFICE_INACTIVE, OFFICE_NOT_FOUND, OFFICE_HEAD_EXISTS, USER_EXISTS
 from app.core.security import hash_pwd, make_jwt, verify_pwd
 from app.models import UserRole
 
@@ -40,6 +40,15 @@ async def _assert_office_exists(*, db: AsyncSession, office_id: int | None) -> N
     res = await db.execute(text("select 1 from offices where id = :oid"), {"oid": office_id})
     if not res.scalar_one_or_none():
         raise HTTPException(status_code=OFFICE_NOT_FOUND.status, detail={"code": OFFICE_NOT_FOUND.code, "msg": OFFICE_NOT_FOUND.msg})
+
+
+async def _assert_office_active(*, db: AsyncSession, office_id: int) -> None:
+    res = await db.execute(text("select is_active from offices where id = :oid"), {"oid": office_id})
+    row = res.mappings().first()
+    if row is None:
+        raise HTTPException(status_code=OFFICE_NOT_FOUND.status, detail={"code": OFFICE_NOT_FOUND.code, "msg": OFFICE_NOT_FOUND.msg})
+    if not row["is_active"]:
+        raise HTTPException(status_code=OFFICE_INACTIVE.status, detail={"code": OFFICE_INACTIVE.code, "msg": OFFICE_INACTIVE.msg})
 
 
 async def bootstrap_office_head(*, db: AsyncSession, data: dict) -> dict:
@@ -103,6 +112,7 @@ async def create_staff_by_admin(*, db: AsyncSession, data: dict, creator: dict) 
         raise HTTPException(status_code=400, detail={"code": "office_required", "msg": "Admin must be assigned to office"})
     if data.get("office_id") != office_id:
         raise HTTPException(status_code=403, detail={"code": "office_scope_violation", "msg": "Admin can create users only in own office"})
+    await _assert_office_active(db=db, office_id=office_id)
     await _assert_login_or_email_not_taken(db=db, login=data_core["login"], email=data_core["email"])
     pwd_hash = hash_pwd(pwd=data_core["pwd"])
     row_res = await db.execute(
@@ -245,21 +255,29 @@ async def delete_user(*, db: AsyncSession, user_id: int) -> bool:
     return res.scalar_one_or_none() is not None
 
 
-async def create_office(*, db: AsyncSession, name: str, creator_id: int) -> dict:
+async def create_office(*, db: AsyncSession, data: dict, creator_id: int) -> dict:
     row_res = await db.execute(
         text(
             """
-            insert into offices(name, created_by_user_id)
-            values(:name, :creator_id)
-            returning id, name, created_by_user_id, created_at
+            insert into offices(name, address, city, is_active, created_by_user_id)
+            values(:name, :address, :city, :is_active, :creator_id)
+            returning id, name, address, city, is_active, created_by_user_id, created_at
             """
         ),
-        {"name": name.strip(), "creator_id": creator_id},
+        {
+            "name": data["name"].strip(),
+            "address": data["address"].strip(),
+            "city": data["city"].strip(),
+            "is_active": data["is_active"],
+            "creator_id": creator_id,
+        },
     )
     await db.commit()
     return dict(row_res.mappings().first())
 
 
 async def list_offices(*, db: AsyncSession) -> list[dict]:
-    res = await db.execute(text("select id, name, created_by_user_id, created_at from offices order by id"))
+    res = await db.execute(
+        text("select id, name, address, city, is_active, created_by_user_id, created_at from offices order by id")
+    )
     return [dict(row) for row in res.mappings().all()]

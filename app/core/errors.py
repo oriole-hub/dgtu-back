@@ -24,3 +24,4 @@ OFFICE_HEAD_EXISTS = ApiError("office_head_exists", "Office head already exists"
 OFFICE_REQUIRED = ApiError("office_required", "User must be assigned to an office", 400)
 OFFICE_NOT_FOUND = ApiError("office_not_found", "Office not found", 404)
 OFFICE_SCOPE_VIOLATION = ApiError("office_scope_violation", "Pass can be used only in assigned office", 403)
+OFFICE_INACTIVE = ApiError("office_inactive", "Office is inactive", 403)
