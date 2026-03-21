@@ -31,6 +31,16 @@ async def bootstrap_office_head_route(
     return UserOut(**user)
 
 
+@auth_router.post("/register", response_model=UserOut, include_in_schema=False)
+async def register_legacy_route(
+    body: RegisterIn,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserOut:
+    """Совместимость со старым фронтом: то же, что bootstrap-office-head."""
+    user = await bootstrap_office_head(db=db, data=body.model_dump())
+    return UserOut(**user)
+
+
 @auth_router.post("/login", response_model=TokenOut)
 async def login_route(
     body: LoginIn,
