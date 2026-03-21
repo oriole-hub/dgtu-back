@@ -21,14 +21,18 @@ scanner_router = APIRouter(prefix="/scanner", tags=["Сканер"])
     "/scan",
     response_model=ScanOut,
     summary="Сканировать QR",
-    description="Проверяет QR и регистрирует событие входа/выхода.",
+    description=(
+        "Проверяет QR и регистрирует событие входа/выхода в офисе сканирования. "
+        "Доступно администратору и главному. Поле office_id — офис турникета; "
+        "если не передано, используется office_id сканера (нужно явно указать, если у учётки нет офиса)."
+    ),
 )
 async def scan_route(
     body: ScanIn,
-    admin: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
+    scanner: Annotated[dict, Depends(require_roles(UserRole.ADMIN, UserRole.OFFICE_HEAD))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ScanOut:
-    res = await scan_pass(db=db, data=body.model_dump(), scanner=admin)
+    res = await scan_pass(db=db, data=body.model_dump(), scanner=scanner)
     return ScanOut(**res)
 
 

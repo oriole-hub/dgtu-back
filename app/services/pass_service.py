@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import (
     OFFICE_NOT_FOUND,
     OFFICE_REQUIRED,
-    OFFICE_SCOPE_VIOLATION,
     PASS_ALREADY_USED,
     PASS_EXPIRED,
     PASS_INVALID,
@@ -79,7 +78,7 @@ async def scan_pass(*, db: AsyncSession, data: dict, scanner: dict) -> dict:
         text(
             """
             select p.id, p.user_id, p.office_id, p.status, p.expires_at,
-                   u.full_name as user_full_name, u.office_id as user_office_id
+                   u.full_name as user_full_name
             from qr_passes p
             join users u on u.id = p.user_id
             where p.qr_token = :token
@@ -99,13 +98,20 @@ async def scan_pass(*, db: AsyncSession, data: dict, scanner: dict) -> dict:
         raise HTTPException(status_code=PASS_REVOKED.status, detail={"code": PASS_REVOKED.code, "msg": PASS_REVOKED.msg})
     if row["status"] == "expired":
         raise HTTPException(status_code=PASS_EXPIRED.status, detail={"code": PASS_EXPIRED.code, "msg": PASS_EXPIRED.msg})
-    if scanner.get("office_id") is None:
-        raise HTTPException(status_code=OFFICE_REQUIRED.status, detail={"code": OFFICE_REQUIRED.code, "msg": OFFICE_REQUIRED.msg})
-    if row["office_id"] != scanner["office_id"] or row["office_id"] != row["user_office_id"]:
+    scan_office_id = data.get("office_id")
+    if scan_office_id is None:
+        scan_office_id = scanner.get("office_id")
+    if scan_office_id is None:
         raise HTTPException(
-            status_code=OFFICE_SCOPE_VIOLATION.status,
-            detail={"code": OFFICE_SCOPE_VIOLATION.code, "msg": OFFICE_SCOPE_VIOLATION.msg},
+            status_code=400,
+            detail={
+                "code": "office_id_required",
+                "msg": "Укажите office_id в теле запроса — офис, где выполняется сканирование (нужно, если у учётной записи нет привязки к офису).",
+            },
         )
+    exists = await db.execute(text("select 1 from offices where id = :oid"), {"oid": scan_office_id})
+    if not exists.scalar_one_or_none():
+        raise HTTPException(status_code=OFFICE_NOT_FOUND.status, detail={"code": OFFICE_NOT_FOUND.code, "msg": OFFICE_NOT_FOUND.msg})
     is_exp = row["expires_at"] < datetime.now(UTC)
     if is_exp:
         await db.execute(
@@ -119,8 +125,14 @@ async def scan_pass(*, db: AsyncSession, data: dict, scanner: dict) -> dict:
         {"pid": row["id"]},
     )
     last_event = await db.execute(
-        text("select direction from access_events where user_id = :uid order by id desc limit 1"),
-        {"uid": row["user_id"]},
+        text(
+            """
+            select direction from access_events
+            where user_id = :uid and office_id = :oid
+            order by id desc limit 1
+            """
+        ),
+        {"uid": row["user_id"], "oid": scan_office_id},
     )
     prev = last_event.scalar_one_or_none()
     direction = AccessDirection.OUT.value if prev == AccessDirection.IN.value else AccessDirection.IN.value
@@ -133,7 +145,7 @@ async def scan_pass(*, db: AsyncSession, data: dict, scanner: dict) -> dict:
         ),
         {
             "user_id": row["user_id"],
-            "office_id": row["office_id"],
+            "office_id": scan_office_id,
             "pass_id": row["id"],
             "direction": direction,
             "scanner_id": scanner["id"],
@@ -147,7 +159,7 @@ async def scan_pass(*, db: AsyncSession, data: dict, scanner: dict) -> dict:
         "direction": direction,
         "user_id": row["user_id"],
         "user_full_name": row["user_full_name"],
-        "office_id": row["office_id"],
+        "office_id": scan_office_id,
     }
 
 

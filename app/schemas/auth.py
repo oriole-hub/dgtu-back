@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from app.models import UserRole
 
@@ -80,5 +80,10 @@ class UserOut(BaseModel):
     referral_count: int
     created_by_user_id: int | None = None
     created_at: datetime
-    job_title: str | None = None
+    job_title: str | None = Field(default=None, description="Должность (сотрудник)")
     account_creation_purpose: str | None = None
+
+    @computed_field
+    @property
+    def position(self) -> str | None:
+        return self.job_title

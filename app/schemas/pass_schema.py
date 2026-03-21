@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PassOut(BaseModel):
@@ -12,6 +12,10 @@ class PassOut(BaseModel):
 
 class ScanIn(BaseModel):
     qr_token: str
+    office_id: int | None = Field(
+        default=None,
+        description="Офис, в котором выполняется сканирование. Если не указан — берётся office_id сканера.",
+    )
 
 
 class ScanOut(BaseModel):
