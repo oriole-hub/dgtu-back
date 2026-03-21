@@ -10,12 +10,16 @@ from app.models import UserRole
 
 
 def _normalize_create_data(data: dict) -> dict:
-    return {
+    normalized = {
         "full_name": data["full_name"].strip(),
         "email": data["email"].strip().lower(),
         "login": data["login"].strip().lower(),
         "pwd": data["pwd"],
     }
+    for key in ("office_id", "role", "account_expires_at", "pass_limit_total"):
+        if key in data:
+            normalized[key] = data[key]
+    return normalized
 
 
 async def _assert_login_or_email_not_taken(*, db: AsyncSession, login: str, email: str) -> None:
