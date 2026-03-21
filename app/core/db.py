@@ -40,6 +40,9 @@ async def _ensure_legacy_enum_compatibility(conn) -> None:
     for value in ("in", "out"):
         await _ensure_enum_value(conn, "access_direction", value)
 
+    # PostgreSQL requires a commit before newly added enum values can be used.
+    await conn.commit()
+
     # Normalize stored values to lowercase where legacy uppercase labels exist.
     await conn.execute(text("update users set role = 'office_head' where role::text = 'OFFICE_HEAD'"))
     await conn.execute(text("update users set role = 'admin' where role::text = 'ADMIN'"))
@@ -87,9 +90,10 @@ async def _ensure_rbac_columns(conn) -> None:
 async def lifespan(app: FastAPI):
     engine = create_async_engine(settings.sqlalchemy_dsn, pool_pre_ping=True)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with engine.begin() as conn:
+    async with engine.connect() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _ensure_rbac_columns(conn)
+        await conn.commit()
     app.state.db = session_factory
     try:
         yield
