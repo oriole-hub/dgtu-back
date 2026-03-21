@@ -24,19 +24,9 @@ class AdminCreateIn(RegisterIn):
     office_id: int
 
 
-class EmployeeCreateIn(RegisterIn):
-    """Сотрудник создаётся в офисе текущего администратора; office_id должен совпадать."""
-
+class StaffCreateIn(RegisterIn):
+    role: UserRole
     office_id: int
-    position: str = Field(min_length=1, max_length=255)
-    account_expires_at: datetime | None = None
-    pass_limit_total: int | None = Field(default=None, ge=1)
-
-
-class GuestCreateIn(RegisterIn):
-    """Гостевой аккаунт офиса администратора; офис берётся из админа, цель обязательна."""
-
-    account_purpose: str = Field(min_length=3, max_length=2000)
     account_expires_at: datetime | None = None
     pass_limit_total: int | None = Field(default=None, ge=1)
 
@@ -49,8 +39,6 @@ class UserUpdateIn(BaseModel):
     account_expires_at: datetime | None = None
     pass_limit_total: int | None = Field(default=None, ge=1)
     referral_count: int | None = Field(default=None, ge=0)
-    position: str | None = Field(default=None, min_length=1, max_length=255)
-    account_purpose: str | None = Field(default=None, min_length=3, max_length=2000)
 
 
 class GuestSelfUpdateIn(BaseModel):
@@ -81,7 +69,5 @@ class UserOut(BaseModel):
     pass_limit_total: int | None = None
     passes_created_count: int
     referral_count: int
-    position: str | None = None
-    account_purpose: str | None = None
     created_by_user_id: int | None = None
     created_at: datetime

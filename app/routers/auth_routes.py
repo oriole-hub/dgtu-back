@@ -11,10 +11,9 @@ from app.schemas.attendance_schema import AttendanceOut
 from app.schemas.auth import (
     AdminCreateIn,
     BootstrapOfficeHeadIn,
-    EmployeeCreateIn,
-    GuestCreateIn,
     GuestSelfUpdateIn,
     LoginIn,
+    StaffCreateIn,
     TokenOut,
     UserOut,
     UserUpdateIn,
@@ -23,8 +22,7 @@ from app.services.attendance_service import get_attendance_for_user
 from app.services.auth_service import (
     bootstrap_office_head,
     create_admin_by_office_head,
-    create_employee_by_admin,
-    create_guest_by_admin,
+    create_staff_by_admin,
     delete_user,
     get_user_by_id,
     list_users,
@@ -175,47 +173,26 @@ async def create_admin_route(
 
 
 @auth_router.post(
-    "/employees",
+    "/staff",
     response_model=UserOut,
-    summary="Создать сотрудника",
-    description="Администратор создаёт сотрудника в своём офисе; указывается должность (position).",
+    summary="Создать сотрудника или гостя",
+    description="Администратор может создавать только сотрудников/гостей в своем офисе.",
 )
-async def create_employee_route(
-    body: EmployeeCreateIn,
+async def create_staff_route(
+    body: StaffCreateIn,
     admin: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserOut:
-    user = await create_employee_by_admin(db=db, data=body.model_dump(), creator=admin)
-    return UserOut(**user)
-
-
-@auth_router.post(
-    "/guests",
-    response_model=UserOut,
-    summary="Создать гостевой аккаунт",
-    description="Администратор создаёт гостя в своём офисе; указывается цель (account_purpose), должность не задаётся.",
-)
-async def create_guest_route(
-    body: GuestCreateIn,
-    admin: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> UserOut:
-    user = await create_guest_by_admin(db=db, data=body.model_dump(), creator=admin)
+    user = await create_staff_by_admin(db=db, data=body.model_dump(), creator=admin)
     return UserOut(**user)
 
 
 @auth_router.get("/users", response_model=list[UserOut], summary="Список пользователей")
 async def list_users_route(
-    actor: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD, UserRole.ADMIN))],
+    _: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[UserOut]:
-    if actor["role"] == UserRole.ADMIN.value:
-        oid = actor.get("office_id")
-        if oid is None:
-            raise HTTPException(status_code=400, detail={"code": "office_required", "msg": "Admin must be assigned to office"})
-        rows = await list_users_by_office_id(db=db, office_id=oid)
-    else:
-        rows = await list_users(db=db)
+    rows = await list_users(db=db)
     return [UserOut(**row) for row in rows]
 
 
@@ -236,52 +213,14 @@ async def list_office_users_route(
     return [UserOut(**row) for row in rows]
 
 
-@auth_router.patch(
-    "/users/{user_id}",
-    response_model=UserOut,
-    summary="Изменить пользователя",
-    description="Главный пользователь — любой пользователь; администратор — только сотрудников и гостей своего офиса.",
-)
-@auth_router.patch(
-    "/workers/{user_id}",
-    response_model=UserOut,
-    summary="Изменить сотрудника или гостя (админ)",
-    description="Алиас PATCH /auth/users/{user_id} для администратора.",
-    include_in_schema=False,
-)
-@auth_router.patch(
-    "/office-users/{user_id}",
-    response_model=UserOut,
-    description="Алиас PATCH /auth/users/{user_id}.",
-    include_in_schema=False,
-)
-async def update_user_route(
+@auth_router.patch("/users/{user_id}", response_model=UserOut, summary="Изменить пользователя (главный)")
+async def office_head_update_user_route(
     user_id: int,
     body: UserUpdateIn,
-    actor: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD, UserRole.ADMIN))],
+    _: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserOut:
-    target = await get_user_by_id(db=db, user_id=user_id)
-    if not target:
-        raise HTTPException(status_code=NOT_FOUND.status, detail={"code": NOT_FOUND.code, "msg": NOT_FOUND.msg})
-    incoming = body.model_dump(exclude_unset=True)
-    if actor["role"] == UserRole.ADMIN.value:
-        if target["role"] not in (UserRole.EMPLOYEE.value, UserRole.GUEST.value):
-            raise HTTPException(
-                status_code=FORBIDDEN.status,
-                detail={"code": FORBIDDEN.code, "msg": "Admin can update only employees and guests"},
-            )
-        if target["office_id"] != actor["office_id"]:
-            raise HTTPException(
-                status_code=FORBIDDEN.status,
-                detail={"code": FORBIDDEN.code, "msg": "Admin can update only users in own office"},
-            )
-        incoming.pop("office_id", None)
-        if "role" in incoming:
-            allowed = {UserRole.EMPLOYEE.value, UserRole.GUEST.value}
-            if incoming["role"] not in allowed or incoming["role"] != target["role"]:
-                raise HTTPException(status_code=FORBIDDEN.status, detail={"code": FORBIDDEN.code, "msg": "Admin cannot change role"})
-    updated = await update_user(db=db, user_id=user_id, data=incoming)
+    updated = await update_user(db=db, user_id=user_id, data=body.model_dump(exclude_unset=True, mode="json"))
     if not updated:
         raise HTTPException(status_code=NOT_FOUND.status, detail={"code": NOT_FOUND.code, "msg": NOT_FOUND.msg})
     return UserOut(**updated)
@@ -299,6 +238,51 @@ async def office_head_delete_user_route(
     if not ok:
         raise HTTPException(status_code=NOT_FOUND.status, detail={"code": NOT_FOUND.code, "msg": NOT_FOUND.msg})
     return {"ok": True}
+
+
+@auth_router.patch(
+    "/workers/{user_id}",
+    response_model=UserOut,
+    summary="Изменить сотрудника или гостя (админ)",
+    description="Администратор может изменять сотрудников и гостей своего офиса, в том числе referral_count.",
+)
+@auth_router.patch(
+    "/office-users/{user_id}",
+    response_model=UserOut,
+    summary="Изменить пользователя офиса (админ)",
+    description="Алиас для PATCH /auth/workers/{user_id}.",
+    include_in_schema=False,
+)
+async def admin_update_worker_route(
+    user_id: int,
+    body: UserUpdateIn,
+    admin: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserOut:
+    target = await get_user_by_id(db=db, user_id=user_id)
+    if not target:
+        raise HTTPException(status_code=NOT_FOUND.status, detail={"code": NOT_FOUND.code, "msg": NOT_FOUND.msg})
+    if target["role"] not in (UserRole.EMPLOYEE.value, UserRole.GUEST.value):
+        raise HTTPException(
+            status_code=FORBIDDEN.status,
+            detail={"code": FORBIDDEN.code, "msg": "Admin can update only employees and guests"},
+        )
+    if target["office_id"] != admin["office_id"]:
+        raise HTTPException(
+            status_code=FORBIDDEN.status,
+            detail={"code": FORBIDDEN.code, "msg": "Admin can update only users in own office"},
+        )
+    incoming = body.model_dump(exclude_unset=True, mode="json")
+    if "office_id" in incoming:
+        incoming.pop("office_id")
+    if "role" in incoming:
+        allowed = {UserRole.EMPLOYEE.value, UserRole.GUEST.value}
+        if incoming["role"] not in allowed or incoming["role"] != target["role"]:
+            raise HTTPException(status_code=FORBIDDEN.status, detail={"code": FORBIDDEN.code, "msg": "Admin cannot change role"})
+    updated = await update_user(db=db, user_id=user_id, data=incoming)
+    if not updated:
+        raise HTTPException(status_code=NOT_FOUND.status, detail={"code": NOT_FOUND.code, "msg": NOT_FOUND.msg})
+    return UserOut(**updated)
 
 
 @auth_router.post("/logout", summary="Выход")

@@ -39,7 +39,7 @@ async def get_current_user(
         text(
             """
             select id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
-                   passes_created_count, referral_count, position, account_purpose, created_by_user_id, created_at
+                   passes_created_count, referral_count, created_by_user_id, created_at
             from users where id = :uid
             """
         ),
@@ -49,8 +49,6 @@ async def get_current_user(
     if row is None:
         raise HTTPException(status_code=UNAUTHORIZED.status, detail={"code": UNAUTHORIZED.code, "msg": UNAUTHORIZED.msg})
     user = dict(row)
-    role_raw = user["role"]
-    user["role"] = role_raw.value if hasattr(role_raw, "value") else str(role_raw)
     if user["account_expires_at"] and user["account_expires_at"] < datetime.now(UTC):
         raise HTTPException(
             status_code=ACCOUNT_EXPIRED.status,
