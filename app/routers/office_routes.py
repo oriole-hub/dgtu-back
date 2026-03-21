@@ -7,7 +7,7 @@ from app.application.deps import get_db, require_roles
 from app.core.errors import FORBIDDEN, NOT_FOUND
 from app.models import UserRole
 from app.schemas.office_schema import OfficeCreateIn, OfficeOut, OfficeUpdateIn
-from app.services.auth_service import create_office, list_offices, update_office
+from app.services.auth_service import create_office, get_office_by_id, list_offices, update_office
 
 office_router = APIRouter(prefix="/offices", tags=["Офисы"])
 
@@ -31,7 +31,7 @@ async def create_office_route(
     "",
     response_model=list[OfficeOut],
     summary="Список офисов",
-    description="Возвращает все офисы. Доступно главному пользователю и администраторам.",
+    description="Главный видит все офисы; администратор — только свой.",
 )
 async def list_offices_route(
     user: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD, UserRole.ADMIN))],
@@ -43,20 +43,43 @@ async def list_offices_route(
     return [OfficeOut(**row) for row in rows]
 
 
+@office_router.get(
+    "/{office_id}",
+    response_model=OfficeOut,
+    summary="Офис по id",
+    description="Главный — любой офис; администратор — только свой.",
+)
+async def get_office_route(
+    office_id: int,
+    user: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD, UserRole.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> OfficeOut:
+    row = await get_office_by_id(db=db, office_id=office_id)
+    if not row:
+        raise HTTPException(status_code=NOT_FOUND.status, detail={"code": NOT_FOUND.code, "msg": NOT_FOUND.msg})
+    if user["role"] == UserRole.ADMIN.value and row["id"] != user.get("office_id"):
+        raise HTTPException(status_code=FORBIDDEN.status, detail={"code": FORBIDDEN.code, "msg": "Admin can view only own office"})
+    return OfficeOut(**row)
+
+
 @office_router.patch(
     "/{office_id}",
     response_model=OfficeOut,
     summary="Изменить настройки офиса (расписание)",
-    description="Главный пользователь может менять время начала рабочего дня и часовой пояс офиса.",
+    description="Главный и администратор могут менять расписание своего офиса (админ — только своего).",
 )
 async def patch_office_route(
     office_id: int,
     body: OfficeUpdateIn,
-    office_head: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD))],
+    user: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD, UserRole.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> OfficeOut:
-    if office_head.get("office_id") != office_id:
-        raise HTTPException(status_code=FORBIDDEN.status, detail={"code": FORBIDDEN.code, "msg": "Office head can update only own office"})
+    if user["role"] == UserRole.OFFICE_HEAD.value:
+        if user.get("office_id") != office_id:
+            raise HTTPException(status_code=FORBIDDEN.status, detail={"code": FORBIDDEN.code, "msg": "Office head can update only own office"})
+    elif user["role"] == UserRole.ADMIN.value:
+        if user.get("office_id") != office_id:
+            raise HTTPException(status_code=FORBIDDEN.status, detail={"code": FORBIDDEN.code, "msg": "Admin can update only own office"})
     updated = await update_office(db=db, office_id=office_id, data=body.model_dump(exclude_unset=True, mode="json"))
     if not updated:
         raise HTTPException(status_code=NOT_FOUND.status, detail={"code": NOT_FOUND.code, "msg": NOT_FOUND.msg})
