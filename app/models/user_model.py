@@ -26,8 +26,24 @@ def normalize_db_role(raw) -> str:
     """Приводит значение role из БД/драйвера к строке, совпадающей с UserRole.value."""
     if raw is None:
         return ""
+    if isinstance(raw, UserRole):
+        return raw.value
+    if isinstance(raw, PyEnum):
+        ev = raw.value
+        if isinstance(ev, str):
+            s = ev.strip().strip('"').lower()
+            if s in {r.value for r in UserRole}:
+                return s
+        s = str(ev).strip().strip('"')
+        low = s.lower()
+        if low in {r.value for r in UserRole}:
+            return low
+        return _LEGACY_ROLE_LABELS.get(s.upper(), low)
     v = getattr(raw, "value", raw)
-    s = str(v).strip()
+    if isinstance(v, bytes):
+        s = v.decode("utf-8", errors="replace").strip().strip('"')
+    else:
+        s = str(v).strip().strip('"')
     low = s.lower()
     if low in {r.value for r in UserRole}:
         return low
