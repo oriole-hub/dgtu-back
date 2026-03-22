@@ -20,6 +20,7 @@ from app.schemas.auth import (
     UserUpdateIn,
 )
 from app.schemas.office_schema import OfficeOut
+from app.services.access_presence_service import enrich_users_with_access_presence
 from app.services.attendance_service import get_attendance_for_user
 from app.services.auth_service import (
     bootstrap_office_head,
@@ -282,6 +283,7 @@ async def list_users_route(
         rows = await list_users_by_office_id(db=db, office_id=oid)
     else:
         rows = await list_users(db=db)
+    rows = await enrich_users_with_access_presence(db=db, users=rows)
     return [UserOut(**row) for row in rows]
 
 
@@ -299,6 +301,7 @@ async def list_office_users_route(
     if oid is None:
         raise HTTPException(status_code=400, detail={"code": "office_required", "msg": "Admin must be assigned to office"})
     rows = await list_users_by_office_id(db=db, office_id=oid)
+    rows = await enrich_users_with_access_presence(db=db, users=rows)
     return [UserOut(**row) for row in rows]
 
 

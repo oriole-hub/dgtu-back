@@ -83,6 +83,24 @@ class UserOut(BaseModel):
     job_title: str | None = Field(default=None, description="Должность (сотрудник)")
     account_creation_purpose: str | None = None
     office: OfficeOut | None = None
+    last_in_at: datetime | None = Field(
+        default=None, description="Последнее событие входа (любой день, UTC)"
+    )
+    last_out_at: datetime | None = Field(
+        default=None, description="Последнее событие выхода (любой день, UTC)"
+    )
+    last_break_out_at: datetime | None = Field(
+        default=None,
+        description="Начало последнего завершённого перекура сегодня (локальный день офиса события, UTC)",
+    )
+    last_break_in_at: datetime | None = Field(
+        default=None,
+        description="Возврат после последнего завершённого перекура сегодня (UTC)",
+    )
+    last_break_duration_seconds: int | None = Field(
+        default=None,
+        description="Длительность последнего завершённого перекура сегодня, секунды",
+    )
 
     @computed_field
     @property
