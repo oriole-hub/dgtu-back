@@ -1,10 +1,7 @@
 from datetime import datetime, time
-
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Time, func
 from sqlalchemy.orm import Mapped, mapped_column
-
 from app.core.core import Base
-
 
 class Office(Base):
     __tablename__ = "offices"

@@ -1,9 +1,7 @@
 import logging
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-
 from app.core.config import settings
 from app.core.db import lifespan
 from app.routers.auth_routes import auth_router

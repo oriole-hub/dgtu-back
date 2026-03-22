@@ -1,9 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
-
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
-
 from app.core.core import Base
 
 
@@ -23,7 +21,6 @@ _LEGACY_ROLE_LABELS = {
 
 
 def normalize_db_role(raw) -> str:
-    """Приводит значение role из БД/драйвера к строке, совпадающей с UserRole.value."""
     if raw is None:
         return ""
     if isinstance(raw, UserRole):

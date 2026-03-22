@@ -1,19 +1,3 @@
-"""
-Создаёт пользователя в офисе id=2:
-  • 10 рабочих дней в текущем месяце (разные даты): в каждый день — вход + выход;
-  • часть первых входов до work_start офиса (on_time), часть после (late);
-  • финальный вход (другой момент времени), чтобы пользователь считался «сейчас в офисе».
-
-Учётка по умолчанию:
-  логин: office2_present
-  пароль: SeedOffice2!
-  (меняются через --login / --password или SEED_LOGIN / SEED_PASSWORD)
-
-Запуск:
-  python -m app.scripts.seed_office2_present_user
-  docker compose exec api python -m app.scripts.seed_office2_present_user
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -37,7 +21,6 @@ DEFAULT_EMAIL = "office2_present@seed.local"
 
 
 def _pick_ten_pair_days(*, today: date) -> list[date]:
-    """До 10 разных календарных дней в текущем месяце, все строго раньше today (пары), если хватает дней."""
     first = today.replace(day=1)
     prev: list[date] = []
     d = today - timedelta(days=1)
@@ -127,10 +110,8 @@ async def _run(*, login: str, email: str, password: str) -> None:
         for idx, d in enumerate(pair_days):
             ws = datetime.combine(d, work_start, tzinfo=tz)
             if idx % 2 == 0:
-                # опоздание: первый вход заметно после начала рабочего дня
                 in_local = ws + timedelta(hours=1, minutes=25)
             else:
-                # без опоздания: вход до work_start
                 in_local = ws - timedelta(minutes=40)
             out_local = in_local + timedelta(hours=7, minutes=45)
             events.append((_to_utc(in_local), "in"))

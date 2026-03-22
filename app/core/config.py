@@ -20,7 +20,6 @@ def _parse_cors_origins(raw: str) -> tuple[list[str], bool]:
 class Settings:
     app_name: str = os.getenv("APP_NAME", "dgtu-back")
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
-    # Comma-separated origins, or "*" for any (dev only; no cookies with *)
     cors_origins_raw: str = os.getenv("CORS_ORIGINS", "*")
 
     db_host: str = os.getenv("DB_HOST", "localhost")

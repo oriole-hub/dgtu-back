@@ -1,7 +1,5 @@
 from datetime import datetime
-
 from pydantic import BaseModel, Field, computed_field
-
 from app.models import UserRole
 
 
