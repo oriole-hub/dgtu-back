@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import ACCOUNT_EXPIRED, INVALID_CREDENTIALS, OFFICE_INACTIVE, OFFICE_NOT_FOUND, OFFICE_HEAD_EXISTS, USER_EXISTS
 from app.core.security import hash_pwd, make_jwt, verify_pwd
 from app.models import UserRole
-from app.models.user_model import normalize_db_role
+from app.models.user_model import NO_ACCOUNT_EXPIRY_ROLES, normalize_db_role
 
 
 def _user_dict(row) -> dict:
@@ -273,9 +273,11 @@ async def login_user(*, db: AsyncSession, data: dict) -> dict:
             status_code=INVALID_CREDENTIALS.status,
             detail={"code": INVALID_CREDENTIALS.code, "msg": INVALID_CREDENTIALS.msg},
         )
+    role = normalize_db_role(row["role"])
     if row["account_expires_at"] and row["account_expires_at"] < datetime.now(UTC):
-        raise HTTPException(status_code=ACCOUNT_EXPIRED.status, detail={"code": ACCOUNT_EXPIRED.code, "msg": ACCOUNT_EXPIRED.msg})
-    token = make_jwt(sub=str(row["id"]), login=row["login"], role=normalize_db_role(row["role"]))
+        if role not in NO_ACCOUNT_EXPIRY_ROLES:
+            raise HTTPException(status_code=ACCOUNT_EXPIRED.status, detail={"code": ACCOUNT_EXPIRED.code, "msg": ACCOUNT_EXPIRED.msg})
+    token = make_jwt(sub=str(row["id"]), login=row["login"], role=role)
     return {"access_token": token, "token_type": "bearer"}
 
 

@@ -12,6 +12,10 @@ class UserRole(str, PyEnum):
     GUEST = "guest"
 
 
+# Срок account_expires_at применяется к гостям/сотрудникам; руководитель и админ не блокируются по дате.
+NO_ACCOUNT_EXPIRY_ROLES: frozenset[str] = frozenset({UserRole.OFFICE_HEAD.value, UserRole.ADMIN.value})
+
+
 _LEGACY_ROLE_LABELS = {
     "OFFICE_HEAD": UserRole.OFFICE_HEAD.value,
     "ADMIN": UserRole.ADMIN.value,
