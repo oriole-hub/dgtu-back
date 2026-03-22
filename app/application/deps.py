@@ -39,7 +39,7 @@ async def get_current_user(
     res = await db.execute(
         text(
             """
-            select id, full_name, email, login, role::text as role, office_id, account_expires_at, pass_limit_total,
+            select id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
                    passes_created_count, referral_count, created_by_user_id, created_at,
                    job_title, account_creation_purpose
             from users where id = :uid
@@ -66,7 +66,7 @@ def require_roles(*allowed: UserRole):
     async def _checker(user: Annotated[dict, Depends(get_current_user)]) -> dict:
         effective = normalize_db_role(user.get("role"))
         user["role"] = effective
-        if effective not in allowed_set:
+        if not effective or effective not in allowed_set:
             raise HTTPException(status_code=FORBIDDEN.status, detail={"code": FORBIDDEN.code, "msg": FORBIDDEN.msg})
         return user
 
