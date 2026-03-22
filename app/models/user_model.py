@@ -81,7 +81,16 @@ def normalize_db_role(raw) -> str:
     low = s.lower()
     if low in known_values:
         return low
-    return _LEGACY_ROLE_LABELS.get(s.upper(), low)
+    mapped = _LEGACY_ROLE_LABELS.get(s.upper())
+    if mapped is not None:
+        return mapped
+    tail = low.rsplit(".", 1)[-1]
+    if tail in known_values:
+        return tail
+    mapped_tail = _LEGACY_ROLE_LABELS.get(tail.upper())
+    if mapped_tail is not None:
+        return mapped_tail
+    return low
 
 
 class User(Base):

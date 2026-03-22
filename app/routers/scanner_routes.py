@@ -40,13 +40,19 @@ async def scan_route(
     "/events",
     response_model=list[AccessEventOut],
     summary="Журнал входов/выходов по офису",
-    description="Показывает события только для офиса текущего администратора.",
+    description="Показывает события для офиса текущего главного пользователя или администратора.",
 )
 async def events_route(
-    admin: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
+    actor: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD, UserRole.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[AccessEventOut]:
-    rows = await list_access_events(db=db, office_id=admin["office_id"])
+    oid = actor.get("office_id")
+    if oid is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "office_required", "msg": "User must be assigned to office"},
+        )
+    rows = await list_access_events(db=db, office_id=oid)
     return [AccessEventOut(**row) for row in rows]
 
 
@@ -54,14 +60,20 @@ async def events_route(
     "/events/users/{user_id}",
     response_model=list[AccessEventOut],
     summary="Журнал пользователя",
-    description="Показывает входы/выходы выбранного пользователя в рамках офиса администратора.",
+    description="Показывает входы/выходы выбранного пользователя в рамках офиса главного пользователя или администратора.",
 )
 async def user_events_route(
     user_id: int,
-    admin: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
+    actor: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD, UserRole.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[AccessEventOut]:
-    rows = await list_access_events_by_user(db=db, office_id=admin["office_id"], user_id=user_id)
+    oid = actor.get("office_id")
+    if oid is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "office_required", "msg": "User must be assigned to office"},
+        )
+    rows = await list_access_events_by_user(db=db, office_id=oid, user_id=user_id)
     return [AccessEventOut(**row) for row in rows]
 
 

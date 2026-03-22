@@ -39,7 +39,7 @@ async def get_current_user(
     res = await db.execute(
         text(
             """
-            select id, full_name, email, login, role, office_id, account_expires_at, pass_limit_total,
+            select id, full_name, email, login, role::text as role, office_id, account_expires_at, pass_limit_total,
                    passes_created_count, referral_count, created_by_user_id, created_at,
                    job_title, account_creation_purpose
             from users where id = :uid

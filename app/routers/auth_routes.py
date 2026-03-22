@@ -224,14 +224,14 @@ async def create_admin_route(
     "/employees",
     response_model=UserOut,
     summary="Создать сотрудника",
-    description="Администратор создаёт сотрудника в своём офисе с указанием должности.",
+    description="Главный пользователь или администратор создаёт сотрудника в своём офисе с указанием должности.",
 )
 async def create_employee_route(
     body: EmployeeCreateIn,
-    admin: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
+    actor: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD, UserRole.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserOut:
-    user = await create_employee_by_admin(db=db, data=body.model_dump(), creator=admin)
+    user = await create_employee_by_admin(db=db, data=body.model_dump(), creator=actor)
     return UserOut(**user)
 
 
@@ -239,14 +239,14 @@ async def create_employee_route(
     "/guests",
     response_model=UserOut,
     summary="Создать гостевой аккаунт",
-    description="Отдельное создание гостя: без должности, с указанием цели создания аккаунта.",
+    description="Главный пользователь или администратор создаёт гостя: без должности, с указанием цели создания аккаунта.",
 )
 async def create_guest_route(
     body: GuestCreateIn,
-    admin: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
+    actor: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD, UserRole.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserOut:
-    user = await create_guest_by_admin(db=db, data=body.model_dump(), creator=admin)
+    user = await create_guest_by_admin(db=db, data=body.model_dump(), creator=actor)
     return UserOut(**user)
 
 
@@ -259,10 +259,10 @@ async def create_guest_route(
 )
 async def create_staff_legacy_route(
     body: EmployeeCreateIn,
-    admin: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
+    actor: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD, UserRole.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserOut:
-    user = await create_employee_by_admin(db=db, data=body.model_dump(), creator=admin)
+    user = await create_employee_by_admin(db=db, data=body.model_dump(), creator=actor)
     return UserOut(**user)
 
 
@@ -291,15 +291,18 @@ async def list_users_route(
     "/office-users",
     response_model=list[UserOut],
     summary="Пользователи офиса (админ)",
-    description="Список учётных записей в офисе текущего администратора.",
+    description="Список учётных записей в офисе текущего главного пользователя или администратора.",
 )
 async def list_office_users_route(
-    admin: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
+    actor: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD, UserRole.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[UserOut]:
-    oid = admin.get("office_id")
+    oid = actor.get("office_id")
     if oid is None:
-        raise HTTPException(status_code=400, detail={"code": "office_required", "msg": "Admin must be assigned to office"})
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "office_required", "msg": "User must be assigned to office"},
+        )
     rows = await list_users_by_office_id(db=db, office_id=oid)
     rows = await enrich_users_with_access_presence(db=db, users=rows)
     return [UserOut(**row) for row in rows]
@@ -360,7 +363,7 @@ async def delete_user_route(
     "/workers/{user_id}",
     response_model=UserOut,
     summary="Изменить сотрудника или гостя (админ)",
-    description="Администратор может изменять сотрудников и гостей своего офиса, в том числе referral_count.",
+    description="Главный пользователь или администратор может изменять сотрудников и гостей (админ — только своего офиса), в том числе referral_count.",
 )
 @auth_router.patch(
     "/office-users/{user_id}",
@@ -372,10 +375,10 @@ async def delete_user_route(
 async def admin_update_worker_route(
     user_id: int,
     body: UserUpdateIn,
-    admin: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
+    actor: Annotated[dict, Depends(require_roles(UserRole.OFFICE_HEAD, UserRole.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserOut:
-    updated = await _patch_worker_or_head(db=db, user_id=user_id, body=body, actor=admin)
+    updated = await _patch_worker_or_head(db=db, user_id=user_id, body=body, actor=actor)
     if not updated:
         raise HTTPException(status_code=NOT_FOUND.status, detail={"code": NOT_FOUND.code, "msg": NOT_FOUND.msg})
     return UserOut(**updated)

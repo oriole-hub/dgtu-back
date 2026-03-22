@@ -259,7 +259,7 @@ async def login_user(*, db: AsyncSession, data: dict) -> dict:
     login = data["login"].strip().lower()
     pwd = data["pwd"]
     row_res = await db.execute(
-        text("select id, login, pwd_hash, role, office_id, account_expires_at from users where login = :login"),
+        text("select id, login, pwd_hash, role::text as role, office_id, account_expires_at from users where login = :login"),
         {"login": login},
     )
     row = row_res.mappings().first()
