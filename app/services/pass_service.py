@@ -160,11 +160,12 @@ async def scan_pass(*, db: AsyncSession, data: dict, scanner: dict) -> dict:
         text("update qr_passes set status = 'used', used_at = now() where id = :pid"),
         {"pid": row["id"]},
     )
-    await db.execute(
+    ins = await db.execute(
         text(
             """
             insert into access_events(user_id, office_id, pass_id, direction, scanned_by_user_id)
             values(:user_id, :office_id, :pass_id, cast(:direction as access_direction), :scanner_id)
+            returning created_at
             """
         ),
         {
@@ -175,6 +176,21 @@ async def scan_pass(*, db: AsyncSession, data: dict, scanner: dict) -> dict:
             "scanner_id": scanner["id"],
         },
     )
+    access_event_at = ins.scalar_one()
+
+    agg_res = await db.execute(
+        text(
+            """
+            select max(created_at) filter (where direction = 'in') as last_in_at,
+                   max(created_at) filter (where direction = 'out') as last_out_at
+            from access_events
+            where user_id = :uid
+            """
+        ),
+        {"uid": row["user_id"]},
+    )
+    agg = agg_res.mappings().first() or {}
+
     await db.commit()
     return {
         "ok": True,
@@ -184,6 +200,9 @@ async def scan_pass(*, db: AsyncSession, data: dict, scanner: dict) -> dict:
         "user_id": row["user_id"],
         "user_full_name": row["user_full_name"],
         "office_id": scan_office_id,
+        "access_event_at": access_event_at,
+        "last_in_at": agg.get("last_in_at"),
+        "last_out_at": agg.get("last_out_at"),
     }
 
 

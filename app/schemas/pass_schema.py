@@ -24,6 +24,9 @@ class ScanOut(BaseModel):
     user_id: int
     user_full_name: str
     office_id: int
+    access_event_at: datetime = Field(description="Время зарегистрированного прохода (UTC)")
+    last_in_at: datetime | None = Field(default=None, description="Последний вход пользователя по всем офисам (UTC)")
+    last_out_at: datetime | None = Field(default=None, description="Последний выход пользователя по всем офисам (UTC)")
 
 
 class AccessEventOut(BaseModel):
