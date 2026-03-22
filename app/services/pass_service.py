@@ -17,6 +17,24 @@ from app.core.security import make_qr_token
 from app.models import AccessDirection
 
 
+def _normalize_access_direction(raw) -> str | None:
+    """Приводит direction из БД/драйвера к 'in' | 'out' для сравнения."""
+    if raw is None:
+        return None
+    if isinstance(raw, AccessDirection):
+        return raw.value
+    v = getattr(raw, "value", raw)
+    if isinstance(v, bytes):
+        s = v.decode("utf-8", errors="replace").strip()
+    else:
+        s = str(v).strip().strip('"')
+    low = s.lower()
+    if low in (AccessDirection.IN.value, AccessDirection.OUT.value):
+        return low
+    legacy = {"IN": AccessDirection.IN.value, "OUT": AccessDirection.OUT.value}
+    return legacy.get(s.upper(), None)
+
+
 async def generate_pass(*, db: AsyncSession, user: dict) -> dict:
     if user["pass_limit_total"] is not None and user["passes_created_count"] >= user["pass_limit_total"]:
         raise HTTPException(
@@ -120,27 +138,33 @@ async def scan_pass(*, db: AsyncSession, data: dict, scanner: dict) -> dict:
         )
         await db.commit()
         raise HTTPException(status_code=PASS_EXPIRED.status, detail={"code": PASS_EXPIRED.code, "msg": PASS_EXPIRED.msg})
-    await db.execute(
-        text("update qr_passes set status = 'used', used_at = now() where id = :pid"),
-        {"pid": row["id"]},
-    )
+
     last_event = await db.execute(
         text(
             """
-            select direction from access_events
+            select direction::text as direction from access_events
             where user_id = :uid and office_id = :oid
             order by id desc limit 1
             """
         ),
         {"uid": row["user_id"], "oid": scan_office_id},
     )
-    prev = last_event.scalar_one_or_none()
-    direction = AccessDirection.OUT.value if prev == AccessDirection.IN.value else AccessDirection.IN.value
+    prev = _normalize_access_direction(last_event.scalar_one_or_none())
+    direction = (
+        AccessDirection.OUT.value
+        if prev == AccessDirection.IN.value
+        else AccessDirection.IN.value
+    )
+
+    await db.execute(
+        text("update qr_passes set status = 'used', used_at = now() where id = :pid"),
+        {"pid": row["id"]},
+    )
     await db.execute(
         text(
             """
             insert into access_events(user_id, office_id, pass_id, direction, scanned_by_user_id)
-            values(:user_id, :office_id, :pass_id, :direction, :scanner_id)
+            values(:user_id, :office_id, :pass_id, cast(:direction as access_direction), :scanner_id)
             """
         ),
         {
