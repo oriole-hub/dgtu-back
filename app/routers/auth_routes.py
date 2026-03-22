@@ -19,6 +19,7 @@ from app.schemas.auth import (
     UserOut,
     UserUpdateIn,
 )
+from app.schemas.office_schema import OfficeOut
 from app.services.attendance_service import get_attendance_for_user
 from app.services.auth_service import (
     bootstrap_office_head,
@@ -26,6 +27,7 @@ from app.services.auth_service import (
     create_employee_by_admin,
     create_guest_by_admin,
     delete_user,
+    get_office_by_id,
     get_user_by_id,
     list_users,
     list_users_by_office_id,
@@ -36,6 +38,16 @@ from app.services.auth_service import (
 from app.services.pass_service import revoke_active_pass
 
 auth_router = APIRouter(prefix="/auth", tags=["Аутентификация и пользователи"])
+
+
+async def _user_out_with_office(db: AsyncSession, user: dict) -> UserOut:
+    office_payload = None
+    oid = user.get("office_id")
+    if oid is not None:
+        row = await get_office_by_id(db=db, office_id=oid)
+        if row:
+            office_payload = OfficeOut(**row)
+    return UserOut(**user, office=office_payload)
 
 
 async def _patch_worker_or_head(
@@ -106,8 +118,9 @@ async def login_route(
 @auth_router.get("/me", response_model=UserOut, summary="Текущий пользователь")
 async def me_route(
     user: Annotated[dict, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserOut:
-    return UserOut(**user)
+    return await _user_out_with_office(db, user)
 
 
 @auth_router.patch("/me", response_model=UserOut, summary="Изменить профиль (гость)")

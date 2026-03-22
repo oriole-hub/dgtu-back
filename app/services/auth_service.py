@@ -448,6 +448,21 @@ async def delete_user(*, db: AsyncSession, user_id: int) -> bool:
     return res.scalar_one_or_none() is not None
 
 
+async def get_office_by_id(*, db: AsyncSession, office_id: int) -> dict | None:
+    res = await db.execute(
+        text(
+            """
+            select id, name, address, city, is_active, work_start_time, iana_timezone,
+                   created_by_user_id, created_at
+            from offices where id = :oid
+            """
+        ),
+        {"oid": office_id},
+    )
+    row = res.mappings().first()
+    return dict(row) if row else None
+
+
 async def update_office(*, db: AsyncSession, office_id: int, data: dict) -> dict | None:
     fields = []
     payload: dict = {"oid": office_id}

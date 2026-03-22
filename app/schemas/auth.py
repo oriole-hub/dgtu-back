@@ -1,6 +1,8 @@
 from datetime import datetime
 from pydantic import BaseModel, Field, computed_field
+
 from app.models import UserRole
+from app.schemas.office_schema import OfficeOut
 
 
 class RegisterIn(BaseModel):
@@ -80,6 +82,7 @@ class UserOut(BaseModel):
     created_at: datetime
     job_title: str | None = Field(default=None, description="Должность (сотрудник)")
     account_creation_purpose: str | None = None
+    office: OfficeOut | None = None
 
     @computed_field
     @property
