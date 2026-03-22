@@ -103,7 +103,7 @@ async def bootstrap_office_head(*, db: AsyncSession, data: dict) -> dict:
         text(
             """
             insert into users(full_name, email, login, pwd_hash, role, office_id, passes_created_count)
-            values(:full_name, :email, :login, :pwd_hash, 'office_head', null, 0)
+            values(:full_name, :email, :login, :pwd_hash, 'office_head'::user_role, null, 0)
             returning id
             """
         ),
@@ -133,7 +133,7 @@ async def bootstrap_office_head(*, db: AsyncSession, data: dict) -> dict:
         text(
             """
             update users
-            set office_id = :office_id
+            set office_id = :office_id, role = 'office_head'::user_role
             where id = :uid
             """
             + _user_select_sql()

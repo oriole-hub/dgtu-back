@@ -21,28 +21,61 @@ _LEGACY_ROLE_LABELS = {
 
 
 def normalize_db_role(raw) -> str:
+    """Приводит значение role из БД/драйвера к одному из UserRole.value (строчные snake_case)."""
     if raw is None:
         return ""
+    known_values = {r.value for r in UserRole}
+
     if isinstance(raw, UserRole):
         return raw.value
+
+    # app UserRole / любой stdlib Enum: сначала по имени члена (OFFICE_HEAD -> office_head)
     if isinstance(raw, PyEnum):
+        legacy = _LEGACY_ROLE_LABELS.get(raw.name.upper())
+        if legacy:
+            return legacy
         ev = raw.value
         if isinstance(ev, str):
             s = ev.strip().strip('"').lower()
-            if s in {r.value for r in UserRole}:
+            if s in known_values:
                 return s
         s = str(ev).strip().strip('"')
         low = s.lower()
-        if low in {r.value for r in UserRole}:
+        if low in known_values:
             return low
         return _LEGACY_ROLE_LABELS.get(s.upper(), low)
+
+    # asyncpg и др.: сначала .value (реальная метка enum), потом .name — у части обёрток .name врёт
+    val = getattr(raw, "value", None)
+    if val is not None and not callable(val):
+        if isinstance(val, bytes):
+            s = val.decode("utf-8", errors="replace").strip().strip('"')
+        else:
+            s = str(val).strip().strip('"')
+        low = s.lower()
+        if low in known_values:
+            return low
+        legacy = _LEGACY_ROLE_LABELS.get(s.upper(), low)
+        if legacy:
+            return legacy
+
+    raw_name = getattr(raw, "name", None)
+    if isinstance(raw_name, str) and raw_name.strip():
+        key = raw_name.strip().upper()
+        legacy = _LEGACY_ROLE_LABELS.get(key)
+        if legacy:
+            return legacy
+        low = raw_name.strip().strip('"').lower()
+        if low in known_values:
+            return low
+
     v = getattr(raw, "value", raw)
     if isinstance(v, bytes):
         s = v.decode("utf-8", errors="replace").strip().strip('"')
     else:
         s = str(v).strip().strip('"')
     low = s.lower()
-    if low in {r.value for r in UserRole}:
+    if low in known_values:
         return low
     return _LEGACY_ROLE_LABELS.get(s.upper(), low)
 
