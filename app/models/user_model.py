@@ -45,7 +45,20 @@ def normalize_db_role(raw) -> str:
             return low
         return _LEGACY_ROLE_LABELS.get(s.upper(), low)
 
-    # asyncpg и др.: часто объект с .name (лейбл enum в PG), без наследования PyEnum
+    # asyncpg и др.: сначала .value (реальная метка enum), потом .name — у части обёрток .name врёт
+    val = getattr(raw, "value", None)
+    if val is not None and not callable(val):
+        if isinstance(val, bytes):
+            s = val.decode("utf-8", errors="replace").strip().strip('"')
+        else:
+            s = str(val).strip().strip('"')
+        low = s.lower()
+        if low in known_values:
+            return low
+        legacy = _LEGACY_ROLE_LABELS.get(s.upper(), low)
+        if legacy:
+            return legacy
+
     raw_name = getattr(raw, "name", None)
     if isinstance(raw_name, str) and raw_name.strip():
         key = raw_name.strip().upper()
