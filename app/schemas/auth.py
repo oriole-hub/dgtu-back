@@ -62,6 +62,14 @@ class LoginIn(BaseModel):
     pwd: str = Field(min_length=6, max_length=128)
 
 
+class ForgotPasswordIn(BaseModel):
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=255)
+
+
+class ForgotPasswordOut(BaseModel):
+    ok: bool = True
+
+
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"

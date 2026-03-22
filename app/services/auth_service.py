@@ -1,3 +1,5 @@
+import asyncio
+import secrets
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -5,8 +7,17 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ACCOUNT_EXPIRED, INVALID_CREDENTIALS, OFFICE_INACTIVE, OFFICE_NOT_FOUND, OFFICE_HEAD_EXISTS, USER_EXISTS
+from app.core.errors import (
+    ACCOUNT_EXPIRED,
+    EMAIL_SEND_FAILED,
+    INVALID_CREDENTIALS,
+    OFFICE_HEAD_EXISTS,
+    OFFICE_INACTIVE,
+    OFFICE_NOT_FOUND,
+    USER_EXISTS,
+)
 from app.core.security import hash_pwd, make_jwt, verify_pwd
+from app.utils.smtp_mail import send_password_reset
 from app.models import UserRole
 from app.models.user_model import normalize_db_role
 
@@ -277,6 +288,33 @@ async def login_user(*, db: AsyncSession, data: dict) -> dict:
         raise HTTPException(status_code=ACCOUNT_EXPIRED.status, detail={"code": ACCOUNT_EXPIRED.code, "msg": ACCOUNT_EXPIRED.msg})
     token = make_jwt(sub=str(row["id"]), login=row["login"], role=normalize_db_role(row["role"]))
     return {"access_token": token, "token_type": "bearer"}
+
+
+async def request_password_reset(*, db: AsyncSession, email: str) -> None:
+    """Генерирует новый пароль, сохраняет хеш в БД и отправляет пароль на email аккаунта."""
+    email_norm = email.strip().lower()
+    row_res = await db.execute(
+        text("select id, login from users where email = :email"),
+        {"email": email_norm},
+    )
+    row = row_res.mappings().first()
+    if row is None:
+        return
+    new_pwd = secrets.token_urlsafe(12)
+    pwd_hash = hash_pwd(pwd=new_pwd)
+    await db.execute(
+        text("update users set pwd_hash = :pwd_hash where id = :uid"),
+        {"pwd_hash": pwd_hash, "uid": row["id"]},
+    )
+    try:
+        await asyncio.to_thread(send_password_reset, email_norm, row["login"], new_pwd)
+    except Exception:
+        await db.rollback()
+        raise HTTPException(
+            status_code=EMAIL_SEND_FAILED.status,
+            detail={"code": EMAIL_SEND_FAILED.code, "msg": EMAIL_SEND_FAILED.msg},
+        )
+    await db.commit()
 
 
 async def list_users(*, db: AsyncSession) -> list[dict]:

@@ -12,6 +12,8 @@ from app.schemas.auth import (
     AdminCreateIn,
     BootstrapOfficeHeadIn,
     EmployeeCreateIn,
+    ForgotPasswordIn,
+    ForgotPasswordOut,
     GuestCreateIn,
     GuestSelfUpdateIn,
     LoginIn,
@@ -33,6 +35,7 @@ from app.services.auth_service import (
     list_users,
     list_users_by_office_id,
     login_user,
+    request_password_reset,
     update_guest_me,
     update_user,
 )
@@ -114,6 +117,20 @@ async def login_route(
 ) -> TokenOut:
     token = await login_user(db=db, data=body.model_dump())
     return TokenOut(**token)
+
+
+@auth_router.post(
+    "/forgot-password",
+    response_model=ForgotPasswordOut,
+    summary="Сброс пароля",
+    description="По email аккаунта: новый пароль отправляется на почту и сохраняется в БД. Если email не найден, ответ тот же (без раскрытия факта регистрации).",
+)
+async def forgot_password_route(
+    body: ForgotPasswordIn,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ForgotPasswordOut:
+    await request_password_reset(db=db, email=body.email)
+    return ForgotPasswordOut()
 
 
 @auth_router.get("/me", response_model=UserOut, summary="Текущий пользователь")
