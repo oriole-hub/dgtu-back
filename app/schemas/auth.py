@@ -101,6 +101,14 @@ class UserOut(BaseModel):
         default=None,
         description="Длительность последнего завершённого перекура сегодня, секунды",
     )
+    late_minutes_today: int | None = Field(
+        default=None,
+        description="Опоздание сегодня (локальный день офиса пользователя): минуты после work_start до первого входа",
+    )
+    overtime_minutes_today: int | None = Field(
+        default=None,
+        description="Переработка сегодня: минуты после окончания номинальной смены (work_start + 8 ч) до последнего выхода; null если выхода ещё не было",
+    )
 
     @computed_field
     @property

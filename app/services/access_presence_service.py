@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+# Длина номинальной смены для переработки: конец = work_start + SHIFT_HOURS
+SHIFT_HOURS = 8
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -53,8 +57,59 @@ def _last_completed_break_today(events: list[dict]) -> tuple[datetime | None, da
     return out_at, in_at, sec if sec >= 0 else None
 
 
+def _work_start_time(row_time: time | None) -> time:
+    return row_time if row_time is not None else time(9, 0)
+
+
+def _late_and_overtime_minutes(
+    events: list[dict],
+    *,
+    work_start: time,
+    user_tz: ZoneInfo,
+    local_today: date,
+    shift_hours: int = SHIFT_HOURS,
+) -> tuple[int | None, int | None]:
+    """
+    Опоздание: минуты после work_start до первого входа сегодня (0 если вовремя или раньше).
+    Переработка: минуты после (work_start + shift_hours) до последнего выхода; None если сегодня не было выхода.
+    """
+    if not events:
+        return None, None
+
+    ordered = sorted(events, key=lambda e: _as_utc(e["created_at"]))
+    first_in_local: datetime | None = None
+    last_out_local: datetime | None = None
+
+    for e in ordered:
+        ts = _as_utc(e["created_at"]).astimezone(user_tz)
+        if ts.date() != local_today:
+            continue
+        if e["direction"] == "in" and first_in_local is None:
+            first_in_local = ts
+        if e["direction"] == "out":
+            last_out_local = ts
+
+    if first_in_local is None:
+        return None, None
+
+    ws_local = datetime.combine(local_today, work_start, tzinfo=user_tz)
+    if first_in_local <= ws_local:
+        late_min = 0
+    else:
+        late_min = int((first_in_local - ws_local).total_seconds() // 60)
+
+    if last_out_local is None:
+        return late_min, None
+
+    shift_end = ws_local + timedelta(hours=shift_hours)
+    if last_out_local <= shift_end:
+        return late_min, 0
+    overtime_min = int((last_out_local - shift_end).total_seconds() // 60)
+    return late_min, overtime_min
+
+
 async def enrich_users_with_access_presence(*, db: AsyncSession, users: list[dict]) -> list[dict]:
-    """Adds last_in_at, last_out_at, last_break_out_at, last_break_in_at, last_break_duration_seconds."""
+    """Adds presence, breaks, late_minutes_today, overtime_minutes_today."""
     if not users:
         return users
 
@@ -78,12 +133,28 @@ async def enrich_users_with_access_presence(*, db: AsyncSession, users: list[dic
     for row in last_res.mappings().all():
         last_by_uid[int(row["user_id"])] = dict(row)
 
+    sched_res = await db.execute(
+        text(
+            """
+            select u.id as user_id, o.work_start_time, o.iana_timezone
+            from users u
+            inner join offices o on o.id = u.office_id
+            where u.id = any(:uids)
+            """
+        ),
+        {"uids": uids},
+    )
+    sched_by_uid: dict[int, dict[str, Any]] = {}
+    for row in sched_res.mappings().all():
+        sched_by_uid[int(row["user_id"])] = dict(row)
+
     today_res = await db.execute(
         text(
             """
             select e.user_id, e.direction::text as direction, e.created_at
             from access_events e
-            inner join offices o on o.id = e.office_id
+            inner join users u on u.id = e.user_id
+            inner join offices o on o.id = u.office_id
             where e.user_id = any(:uids)
               and (e.created_at at time zone o.iana_timezone)::date
                   = (current_timestamp at time zone o.iana_timezone)::date
@@ -111,6 +182,27 @@ async def enrich_users_with_access_presence(*, db: AsyncSession, users: list[dic
         row["last_break_out_at"] = bout
         row["last_break_in_at"] = bin_
         row["last_break_duration_seconds"] = bdur
+
+        sched = sched_by_uid.get(lid)
+        if sched and evs:
+            tz_name = sched["iana_timezone"]
+            try:
+                user_tz = ZoneInfo(str(tz_name))
+            except ZoneInfoNotFoundError:
+                row["late_minutes_today"] = None
+                row["overtime_minutes_today"] = None
+            else:
+                ws = _work_start_time(sched.get("work_start_time"))
+                local_today = datetime.now(user_tz).date()
+                late_m, ot_m = _late_and_overtime_minutes(
+                    evs, work_start=ws, user_tz=user_tz, local_today=local_today
+                )
+                row["late_minutes_today"] = late_m
+                row["overtime_minutes_today"] = ot_m
+        else:
+            row["late_minutes_today"] = None
+            row["overtime_minutes_today"] = None
+
         out.append(row)
 
     return out
