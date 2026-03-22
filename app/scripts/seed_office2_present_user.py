@@ -44,6 +44,52 @@ def _to_utc(dt: datetime) -> datetime:
     return dt.astimezone(UTC)
 
 
+def _build_today_shift_with_breaks_and_overtime(
+    *,
+    day: date,
+    work_start: time,
+    tz: ZoneInfo,
+    late_minutes: int = 22,
+    break1_minutes: int = 15,
+    break2_minutes: int = 12,
+    overtime_after_nominal: timedelta = timedelta(hours=1, minutes=30),
+) -> tuple[list[tuple[datetime, str]], dict[str, object]]:
+    """
+    Один рабочий день: опоздание на late_minutes, два перекура (out/in), уход с переработкой
+    относительно номинального окончания (8 ч после первого входа).
+    """
+    ws = datetime.combine(day, work_start, tzinfo=tz)
+    first_in = ws + timedelta(minutes=late_minutes)
+
+    b1_out = first_in + timedelta(hours=2)
+    b1_in = b1_out + timedelta(minutes=break1_minutes)
+
+    b2_out = b1_in + timedelta(hours=2, minutes=30)
+    b2_in = b2_out + timedelta(minutes=break2_minutes)
+
+    nominal_end = first_in + timedelta(hours=8)
+    last_out = nominal_end + overtime_after_nominal
+
+    local_seq = [
+        (first_in, "in"),
+        (b1_out, "out"),
+        (b1_in, "in"),
+        (b2_out, "out"),
+        (b2_in, "in"),
+        (last_out, "out"),
+    ]
+    meta: dict[str, object] = {
+        "first_in_local": first_in,
+        "last_out_local": last_out,
+        "late_minutes": late_minutes,
+        "break1_minutes": break1_minutes,
+        "break2_minutes": break2_minutes,
+        "overtime": overtime_after_nominal,
+        "nominal_end_local": nominal_end,
+    }
+    return [(_to_utc(ts), d) for ts, d in local_seq], meta
+
+
 async def _run(*, login: str, email: str, password: str) -> None:
     engine = create_async_engine(settings.sqlalchemy_dsn)
     pwd_hash = hash_pwd(pwd=password)
@@ -117,19 +163,18 @@ async def _run(*, login: str, email: str, password: str) -> None:
             events.append((_to_utc(in_local), "in"))
             events.append((_to_utc(out_local), "out"))
 
+        today_shift, today_meta = _build_today_shift_with_breaks_and_overtime(
+            day=today,
+            work_start=work_start,
+            tz=tz,
+            late_minutes=22,
+            break1_minutes=15,
+            break2_minutes=12,
+            overtime_after_nominal=timedelta(hours=1, minutes=30),
+        )
+        events.extend(today_shift)
+
         events.sort(key=lambda x: x[0])
-        last_ts = events[-1][0]
-
-        final_in_utc = datetime.now(UTC)
-        if final_in_utc <= last_ts:
-            final_in_utc = last_ts + timedelta(minutes=2)
-
-        fi_local = final_in_utc.astimezone(tz)
-        if fi_local.year != today.year or fi_local.month != today.month:
-            final_in_utc = _to_utc(datetime.combine(today, time(17, 30), tzinfo=tz))
-        if final_in_utc <= last_ts:
-            final_in_utc = last_ts + timedelta(minutes=2)
-        events.append((final_in_utc, "in"))
 
         for ts, direction in events:
             await conn.execute(
@@ -158,6 +203,15 @@ async def _run(*, login: str, email: str, password: str) -> None:
             flush=True,
         )
 
+    fi = today_meta["first_in_local"]
+    lo = today_meta["last_out_local"]
+    ne = today_meta["nominal_end_local"]
+    ot = today_meta["overtime"]
+    assert isinstance(fi, datetime) and isinstance(lo, datetime) and isinstance(ne, datetime)
+    assert isinstance(ot, timedelta)
+    ot_h = int(ot.total_seconds() // 3600)
+    ot_m = int((ot.total_seconds() % 3600) // 60)
+
     print()
     print("========== УЧЁТНАЯ ЗАПИСЬ ==========")
     print(f"  Логин:    {login}")
@@ -165,11 +219,21 @@ async def _run(*, login: str, email: str, password: str) -> None:
     print(f"  Email:    {email}")
     print("====================================")
     print()
+    print("========== СЕГОДНЯ (демо для календаря / API) ==========")
+    print(f"  Локальная дата офиса: {today.isoformat()} ({tz_name})")
+    print(f"  Начало рабочего дня (офис): {work_start.isoformat(timespec='minutes')}")
+    print(f"  Приход (первый вход):     {fi.strftime('%H:%M')} — опоздание {today_meta['late_minutes']} мин → статус дня: late")
+    print(f"  Перекур 1:                  {today_meta['break1_minutes']} мин (выход/вход в событиях)")
+    print(f"  Перекур 2:                  {today_meta['break2_minutes']} мин")
+    print(f"  Номинальный конец (8 ч):  {ne.strftime('%H:%M')}")
+    print(f"  Уход:                       {lo.strftime('%H:%M')} — переработка {ot_h} ч {ot_m} мин после номинала")
+    print("========================================================")
+    print()
     print(
         f"OK: user id={user_id}, office_id={OFFICE_ID}, "
-        f"дней с парами вход/выход: {len(pair_days)} "
+        f"дней с парами вход/выход (без сегодня): {len(pair_days)} "
         f"(~{late_days} с опозданием, ~{on_time_days} без), "
-        f"+ финальный вход (сейчас в офисе). "
+        f"+ сегодня: полный день с 2 перекурами и переработкой. "
         f"Таймзона офиса: {tz_name}, work_start: {work_start.isoformat(timespec='minutes')}"
     )
 
