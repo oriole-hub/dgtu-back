@@ -40,3 +40,5 @@ class PresentInOfficeOut(BaseModel):
     user_id: int
     user_full_name: str
     last_event_at: datetime
+
+#1
